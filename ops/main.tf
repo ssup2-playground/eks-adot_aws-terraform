@@ -21,8 +21,8 @@ provider "kubernetes" {
 
 provider "helm" {
   # to avoid issue : https://github.com/hashicorp/terraform-provider-helm/issues/630#issuecomment-996682323
-  #repository_config_path = "${path.module}/.helm/repositories.yaml" 
-  #repository_cache       = "${path.module}/.helm"
+  repository_config_path = "${path.module}/.helm/repositories.yaml" 
+  repository_cache       = "${path.module}/.helm"
 
   kubernetes {
     host                   = module.eks.cluster_endpoint
@@ -98,6 +98,9 @@ module "eks" {
   subnet_ids                      = module.vpc.private_subnets
   cluster_endpoint_public_access  = true
 
+  manage_aws_auth_configmap = true
+
+  ## Addons
   cluster_addons = {
     coredns = {
       addon_version = "v1.10.1-eksbuild.5"
@@ -123,28 +126,12 @@ module "eks" {
     }
   }
 
-  eks_managed_node_groups = {
-    core = {
-      min_size     = 2
-      max_size     = 6
-      desired_size = 2
-
-      instance_types = ["m6i.xlarge"]
-      iam_role_additional_policies = {
-        AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-      }
-
-      labels = {
-        type = "core"
-      }
-
-      taints = {
-        dedicated = {
-          key    = "type"
-          value  = "core"
-          effect = "NO_SCHEDULE"
-        }
-      }
+  ## Fargate
+  fargate_profiles = {
+    karpenter = {
+      selectors = [
+        { namespace = "karpenter" }
+      ]
     }
   }
 
@@ -163,7 +150,6 @@ module "eks" {
     }
   }
 
-  manage_aws_auth_configmap = true
   aws_auth_roles = [
     {
       ## for Karpenter
@@ -196,7 +182,7 @@ resource "helm_release" "karpenter" {
   name       = "karpenter"
   chart      = "karpenter"
   repository = "oci://public.ecr.aws/karpenter"
-  version    = "v0.24.0"
+  version    = "v0.31.0"
 
   set {
     name  = "settings.aws.clusterName"
@@ -218,29 +204,42 @@ resource "helm_release" "karpenter" {
     name  = "settings.aws.interruptionQueueName"
     value = module.karpenter.queue_name
   }
-  set {
-    name  = "nodeSelector.type"
-    value = "core"
-  }
-  set {
-    name  = "tolerations[0].key"
-    value = "type"
-  }
-  set {
-    name  = "tolerations[0].value"
-    value = "core"
-  }
-  set {
-    name  = "tolerations[0].operator"
-    value = "Equal"
-  }
-  set {
-    name  = "tolerations[0].effect"
-    value = "NoSchedule"
-  }
 }
 
-resource "kubectl_manifest" "karpenter_provisioner" {
+resource "kubectl_manifest" "karpenter_provisioner_core" {
+  yaml_body = <<-YAML
+    apiVersion: karpenter.sh/v1alpha5
+    kind: Provisioner
+    metadata:
+      name: core
+    spec:
+      providerRef:
+        name: default
+      ttlSecondsAfterEmpty: 30
+      requirements:
+        - key: karpenter.sh/capacity-type
+          operator: In
+          values: ["on-demand"]
+        - key: karpenter.k8s.aws/instance-family
+          operator: In
+          values: ["m6i"]
+        - key: karpenter.k8s.aws/instance-size
+          operator: In
+          values: ["xlarge"]
+      labels:
+        type: core
+      taints:
+      - key: type
+        value: core
+        effect: NoSchedule
+  YAML
+
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
+
+resource "kubectl_manifest" "karpenter_provisioner_default" {
   yaml_body = <<-YAML
     apiVersion: karpenter.sh/v1alpha5
     kind: Provisioner
@@ -249,6 +248,7 @@ resource "kubectl_manifest" "karpenter_provisioner" {
     spec:
       providerRef:
         name: default
+      ttlSecondsAfterEmpty: 30
       requirements:
         - key: karpenter.sh/capacity-type
           operator: In
@@ -312,6 +312,7 @@ resource "helm_release" "aws_load_balancer_controller" {
   name       = "aws-load-balancer-controller"
   chart      = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
+  version    = "v1.6.2"
  
   set {
     name  = "clusterName"
