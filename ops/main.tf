@@ -34,6 +34,10 @@ provider "helm" {
       args        = ["eks", "get-token", "--cluster-name", module.eks.cluster_name]
     }
   }
+
+  experiments {
+    manifest = false
+  }
 }
 
 provider "kubectl" {
@@ -348,5 +352,98 @@ resource "helm_release" "aws_load_balancer_controller" {
   }
 }
 
-## EKS / Metric Server
 ## EKS / ArgoCD
+resource "helm_release" "argo_cd" {
+  namespace        = "argo-cd"
+  create_namespace = true
+
+  name       = "argo-cd"
+  chart      = "argo-cd"
+  repository = "https://argoproj.github.io/argo-helm"
+  version    = "5.50.1"
+
+  ## Global
+  set {
+    name  = "global.nodeSelector.type"
+    value = "core"
+  }
+  set {
+    name  = "global.tolerations[0].key"
+    value = "type"
+  }
+  set {
+    name  = "global.tolerations[0].value"
+    value = "core"
+  }
+  set {
+    name  = "global.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "global.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+
+  ## Replicas
+  set {
+    name  = "controller.replicas"
+    value = 1
+  }
+  set {
+    name  = "server.replicas"
+    value = 2
+  }
+  set {
+    name  = "repoServer.replicas"
+    value = 2
+  }
+  set {
+    name  = "applicationSet.replicas"
+    value = 2
+  }
+
+  ## Redis HA
+  set {
+    name  = "redis-ha.enabled"
+    value = "true"
+  }
+  set {
+    name  = "redis-ha.nodeSelector.type"
+    value = "core"
+  }
+  set {
+    name  = "redis-ha.tolerations[0].key"
+    value = "type"
+  }
+  set {
+    name  = "redis-ha.tolerations[0].value"
+    value = "core"
+  }
+  set {
+    name  = "redis-ha.tolerations[0].operator"
+    value = "Equal"
+  }
+  set {
+    name  = "redis-ha.tolerations[0].effect"
+    value = "NoSchedule"
+  }
+
+  ## Service
+  set {
+    name  = "server.service.type"
+    value = "LoadBalancer"
+  }
+  set {
+    name  = "server.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-type"
+    value = "external"
+  }
+  set {
+    name  = "server.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-scheme"
+    value = "internet-facing"
+  }
+  set {
+    name  = "server.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-nlb-target-type"
+    value = "ip"
+  }
+}
+
