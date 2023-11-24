@@ -296,6 +296,21 @@ resource "kubectl_manifest" "karpenter_node_template" {
   ]
 }
 
+## EKS / Metric Server
+resource "helm_release" "metrics_server" {
+  namespace  = "kube-system"
+  name       = "metrics-server"
+  chart      = "metrics-server"
+  repository = "https://kubernetes-sigs.github.io/metrics-server"
+  version    = "v3.11.0"
+
+  values = [
+    file("${path.module}/helm-values/metrics-server.yaml")
+  ]
+}
+
+## EKS / Cert Manager
+
 ## EKS / Load Balancer Controller
 module "eks_load_balancer_controller_irsa_role" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
@@ -318,6 +333,10 @@ resource "helm_release" "aws_load_balancer_controller" {
   repository = "https://aws.github.io/eks-charts"
   version    = "v1.6.2"
  
+  values = [
+    file("${path.module}/helm-values/aws-load-balancer-controller.yaml")
+  ]
+
   set {
     name  = "clusterName"
     value = module.eks.cluster_name
@@ -329,26 +348,6 @@ resource "helm_release" "aws_load_balancer_controller" {
   set {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = module.eks_load_balancer_controller_irsa_role.iam_role_arn
-  }
-  set {
-    name  = "nodeSelector.type"
-    value = "core"
-  }
-  set {
-    name  = "tolerations[0].key"
-    value = "type"
-  }
-  set {
-    name  = "tolerations[0].value"
-    value = "core"
-  }
-  set {
-    name  = "tolerations[0].operator"
-    value = "Equal"
-  }
-  set {
-    name  = "tolerations[0].effect"
-    value = "NoSchedule"
   }
 }
 
@@ -362,88 +361,12 @@ resource "helm_release" "argo_cd" {
   repository = "https://argoproj.github.io/argo-helm"
   version    = "5.50.1"
 
-  ## Global
-  set {
-    name  = "global.nodeSelector.type"
-    value = "core"
-  }
-  set {
-    name  = "global.tolerations[0].key"
-    value = "type"
-  }
-  set {
-    name  = "global.tolerations[0].value"
-    value = "core"
-  }
-  set {
-    name  = "global.tolerations[0].operator"
-    value = "Equal"
-  }
-  set {
-    name  = "global.tolerations[0].effect"
-    value = "NoSchedule"
-  }
-
-  ## Replicas
-  set {
-    name  = "controller.replicas"
-    value = 1
-  }
-  set {
-    name  = "server.replicas"
-    value = 2
-  }
-  set {
-    name  = "repoServer.replicas"
-    value = 2
-  }
-  set {
-    name  = "applicationSet.replicas"
-    value = 2
-  }
-
-  ## Redis HA
-  set {
-    name  = "redis-ha.enabled"
-    value = "true"
-  }
-  set {
-    name  = "redis-ha.nodeSelector.type"
-    value = "core"
-  }
-  set {
-    name  = "redis-ha.tolerations[0].key"
-    value = "type"
-  }
-  set {
-    name  = "redis-ha.tolerations[0].value"
-    value = "core"
-  }
-  set {
-    name  = "redis-ha.tolerations[0].operator"
-    value = "Equal"
-  }
-  set {
-    name  = "redis-ha.tolerations[0].effect"
-    value = "NoSchedule"
-  }
-
-  ## Service
-  set {
-    name  = "server.service.type"
-    value = "LoadBalancer"
-  }
-  set {
-    name  = "server.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-type"
-    value = "external"
-  }
-  set {
-    name  = "server.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-scheme"
-    value = "internet-facing"
-  }
-  set {
-    name  = "server.service.annotations.service\\.beta\\.kubernetes\\.io/aws-load-balancer-nlb-target-type"
-    value = "ip"
-  }
+  values = [
+    file("${path.module}/helm-values/argo-cd.yaml")
+  ]
 }
+
+## EKS / Tempo
+
+## EKS / Loki
 

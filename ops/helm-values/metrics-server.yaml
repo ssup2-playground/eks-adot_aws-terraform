@@ -1,0 +1,16 @@
+replicas: 2
+
+nodeSelector:
+  type: "core"
+
+tolerations:
+- key: "type"
+  operator: "Equal"
+  value: "core"
+  effect: "NoSchedule"
+
+topologySpreadConstraints:
+- maxSkew: 1
+  topologyKey: "topology.kubernetes.io/zone"
+  whenUnsatisfiable: "DoNotSchedule"
+
