@@ -1,0 +1,80 @@
+loki:
+  storage:
+    type: "s3"
+    bucketNames:
+      chunks: "ts-eks-full-ops-log"
+      ruler: "ts-eks-full-ops-log"
+      admin: "ts-eks-full-ops-log"
+    s3:
+      endpoint: "s3.ap-northeast-2.amazonaws.com"
+      accessKeyId: "${GRAFANA-LOKI-S3-ACCESKEYID}"
+      secretAccessKey: "${GRAFANA-LOKI-S3-SECRETACCESSKEY}"
+      s3ForcePathStyle: "false"
+      insecure: "false"
+
+test:
+  enabled: "false"
+
+monitoring:
+  dashboards:
+    enabled: "false"
+
+  rules:
+    enabled: "false"
+
+  serviceMonitor:
+    enabled: "false"
+
+  selfMonitoring:
+    enabled: "false"
+
+  lokiCanary:
+    enabled: "false"
+
+write:
+  nodeSelector:
+    type: "service"
+
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: "topology.kubernetes.io/zone"
+    whenUnsatisfiable: "DoNotSchedule"
+
+read:
+  nodeSelector:
+    type: "service"
+
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: "topology.kubernetes.io/zone"
+    whenUnsatisfiable: "DoNotSchedule"
+
+backend:
+  extraArgs:
+  - '-config.expand-env=true'
+
+  extraEnv:
+  - name: GRAFANA-LOKI-S3-ENDPOINT 
+    valueFrom:
+      secretKeyRef:
+        name: loki-secrets
+        key: grafana-loki-s3-endpoint
+  - name: GRAFANA-LOKI-S3-ACCESKEYID 
+    valueFrom:
+      secretKeyRef:
+        name: loki-secrets
+        key: grafana-loki-s3-accessKeyId
+  - name: GRAFANA-LOKI-S3-SECRETACCESSKEY
+    valueFrom:
+      secretKeyRef:
+        name: loki-secrets
+        key: grafana-loki-s3-secretAccessKey
+
+  nodeSelector:
+    type: "service"
+
+  topologySpreadConstraints:
+  - maxSkew: 1
+    topologyKey: "topology.kubernetes.io/zone"
+    whenUnsatisfiable: "DoNotSchedule"
+

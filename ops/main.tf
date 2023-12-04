@@ -62,6 +62,33 @@ data "aws_ecrpublic_authorization_token" "token" {
   provider = aws.ecr
 }
 
+## S3
+resource "aws_s3_bucket" "log" {
+  bucket = local.s3_bucket_log
+}
+
+resource "aws_s3_object" "loki" {
+  bucket = aws_s3_bucket.log.id
+  acl    = "private"
+  key    = format("%s/", local.s3_dir_loki)
+  source = "/dev/null"
+}
+
+resource "aws_vpc_endpoint" "s3_endpoint" {
+  vpc_id       = module.vpc.vpc_id
+  service_name = "com.amazonaws.${local.region}.s3"
+
+  tags = {
+    Name = format("%s-s3-endpoint", local.name)
+  }
+}
+
+resource "aws_vpc_endpoint_route_table_association" "s3_endpoint_routetable" {
+  count           = length(local.azs)
+  vpc_endpoint_id = aws_vpc_endpoint.s3_endpoint.id
+  route_table_id  = module.vpc.private_route_table_ids[count.index]
+}
+
 ## VPC
 module "vpc" {
   source = "terraform-aws-modules/vpc/aws"
@@ -127,6 +154,24 @@ module "eks" {
     }
     kube-proxy = {
       addon_version = "v1.28.1-eksbuild.1"
+    }
+    aws-ebs-csi-driver = {
+      addon_version = "v1.25.0-eksbuild.1"
+      configuration_values = jsonencode({
+        controller: {
+          nodeSelector: {
+            type: "core"
+          }
+          tolerations: [
+            {
+              key: "type",
+              value: "core",
+              operator: "Equal",
+              effect: "NoSchedule"
+            }
+          ]
+        }
+      })
     }
   }
 
@@ -366,7 +411,55 @@ resource "helm_release" "argo_cd" {
   ]
 }
 
+## EKS / Loki
+#resource "helm_release" "loki" {
+#  namespace        = "monitoring"
+#  create_namespace = true
+
+#  name       = "loki"
+#  chart      = "loki"
+#  repository = "https://grafana.github.io/helm-charts"
+#  version    = "v5.38.0"
+ 
+#  values = [
+#    file("${path.module}/helm-values/loki.yaml")
+#  ]
+#}
+
 ## EKS / Tempo
 
-## EKS / Loki
+## EKS / Grafana 
+module "eks_grafana_irsa_role" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name        = format("eks-grafana-%s", local.name)
+  role_policy_arns = {
+    policy = "arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess"
+  }
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks.oidc_provider_arn
+      namespace_service_accounts = ["monitoring:grafana"]
+    }
+  }
+}
+
+resource "helm_release" "grafana" {
+  namespace        = "monitoring"
+  create_namespace = true
+
+  name       = "grafana"
+  chart      = "grafana"
+  repository = "https://grafana.github.io/helm-charts"
+  version    = "v7.0.8"
+ 
+  values = [
+    file("${path.module}/helm-values/grafana.yaml")
+  ]
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.eks_grafana_irsa_role.iam_role_arn
+  }
+}
 

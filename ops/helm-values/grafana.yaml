@@ -1,0 +1,20 @@
+nodeSelector:
+  type: "service"
+
+topologySpreadConstraints:
+- maxSkew: 1
+  topologyKey: "topology.kubernetes.io/zone"
+  whenUnsatisfiable: "DoNotSchedule"
+
+replicas: 2
+
+service:
+  type: "LoadBalancer"
+  annotations:
+    service.beta.kubernetes.io/aws-load-balancer-type: "external"
+    service.beta.kubernetes.io/aws-load-balancer-scheme: "internet-facing"
+    service.beta.kubernetes.io/aws-load-balancer-nlb-target-type: "ip"
+
+env:
+  AWS_SDK_LOAD_CONFIG: "true"
+  GF_AUTH_SIGV4_AUTH_ENABLED: "true"
