@@ -262,7 +262,7 @@ resource "kubectl_manifest" "karpenter_provisioner_default" {
           values: ["m6i"]
         - key: karpenter.k8s.aws/instance-size
           operator: In
-          values: ["large", "xlarge"]
+          values: ["xlarge"]
       labels:
         type: service
       limits:

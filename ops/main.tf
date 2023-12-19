@@ -118,6 +118,13 @@ module "vpc" {
   }
 }
 
+## AMP
+module "prometheus" {
+  source = "terraform-aws-modules/managed-service-prometheus/aws"
+
+  workspace_alias = format("%s-amp", local.name)
+}
+
 ## EKS
 module "eks" {
   source = "terraform-aws-modules/eks/aws"
@@ -412,19 +419,19 @@ resource "helm_release" "argo_cd" {
 }
 
 ## EKS / Loki
-#resource "helm_release" "loki" {
-#  namespace        = "monitoring"
-#  create_namespace = true
+resource "helm_release" "loki" {
+  namespace        = "monitoring"
+  create_namespace = true
 
-#  name       = "loki"
-#  chart      = "loki"
-#  repository = "https://grafana.github.io/helm-charts"
-#  version    = "v5.38.0"
+  name       = "loki"
+  chart      = "loki"
+  repository = "https://grafana.github.io/helm-charts"
+  version    = "v5.38.0"
  
-#  values = [
-#    file("${path.module}/helm-values/loki.yaml")
-#  ]
-#}
+  values = [
+    file("${path.module}/helm-values/loki.yaml")
+  ]
+}
 
 ## EKS / Tempo
 
