@@ -1,6 +1,6 @@
-# eks-full_aws-terraform 
+# eks-adot_aws-terraform 
 
-## Ops Cluster
+## Observer Account
 
 * AWS access key, AWS secret key
 
@@ -9,4 +9,4 @@ $ kubectl create namespace monitoring
 $ kubectl -n monitoring create secret generic aws-secret --from-literal=AWS_KEY_ACCESS=[access key] --from-literal=AWS_KEY_SECRET=[secret key]
 ```
 
-## Dev Cluster
+## Workload Account
