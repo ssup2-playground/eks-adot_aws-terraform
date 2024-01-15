@@ -180,6 +180,22 @@ module "eks" {
         }
       })
     }
+    adot = {
+      addon_version = "v0.90.0-eksbuild.1"
+      configuration_values = jsonencode({
+        nodeSelector: {
+          type: "core"
+        }
+        tolerations: [
+          {
+            key: "type",
+            value: "core",
+            operator: "Equal",
+            effect: "NoSchedule"
+          }
+        ]
+      })
+    }
   }
 
   ## Fargate
