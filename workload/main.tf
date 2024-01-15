@@ -123,7 +123,7 @@ module "eks" {
       })
     }
     vpc-cni = {
-      addon_version = "v1.14.1-eksbuild.1"
+      addon_version = "v1.15.4-eksbuild.1"
     }
     kube-proxy = {
       addon_version = "v1.28.1-eksbuild.1"
@@ -208,6 +208,10 @@ resource "helm_release" "karpenter" {
     name  = "settings.aws.interruptionQueueName"
     value = module.karpenter.queue_name
   }
+
+  depends_on = [
+    module.karpenter
+  ]
 }
 
 resource "kubectl_manifest" "karpenter_provisioner_core" {
@@ -352,6 +356,7 @@ resource "helm_release" "aws_load_balancer_controller" {
   }
 
   depends_on = [
+    module.eks_load_balancer_controller_irsa_role,
     helm_release.karpenter
   ]
 }

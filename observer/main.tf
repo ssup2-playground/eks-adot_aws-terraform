@@ -260,6 +260,10 @@ resource "helm_release" "karpenter" {
     name  = "settings.aws.interruptionQueueName"
     value = module.karpenter.queue_name
   }
+
+  depends_on = [
+    module.karpenter
+  ]
 }
 
 resource "kubectl_manifest" "karpenter_provisioner_core" {
@@ -278,7 +282,7 @@ resource "kubectl_manifest" "karpenter_provisioner_core" {
           values: ["on-demand"]
         - key: karpenter.k8s.aws/instance-family
           operator: In
-          values: ["m6i"]
+          values: ["m5"]
         - key: karpenter.k8s.aws/instance-size
           operator: In
           values: ["xlarge"]
@@ -401,37 +405,42 @@ resource "helm_release" "aws_load_balancer_controller" {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = module.eks_load_balancer_controller_irsa_role.iam_role_arn
   }
+
+  depends_on = [
+    module.eks_load_balancer_controller_irsa_role,
+    helm_release.karpenter
+  ]
 }
 
 ## EKS / ArgoCD
-resource "helm_release" "argo_cd" {
-  namespace        = "argo-cd"
-  create_namespace = true
+#resource "helm_release" "argo_cd" {
+#  namespace        = "argo-cd"
+#  create_namespace = true
 
-  name       = "argo-cd"
-  chart      = "argo-cd"
-  repository = "https://argoproj.github.io/argo-helm"
-  version    = "5.50.1"
+#  name       = "argo-cd"
+#  chart      = "argo-cd"
+#  repository = "https://argoproj.github.io/argo-helm"
+#  version    = "5.50.1"
 
-  values = [
-    file("${path.module}/helm-values/argo-cd.yaml")
-  ]
-}
+#  values = [
+#    file("${path.module}/helm-values/argo-cd.yaml")
+#  ]
+#}
 
 ## EKS / Loki
-resource "helm_release" "loki" {
-  namespace        = "monitoring"
-  create_namespace = true
+#resource "helm_release" "loki" {
+#  namespace        = "monitoring"
+#  create_namespace = true
 
-  name       = "loki"
-  chart      = "loki"
-  repository = "https://grafana.github.io/helm-charts"
-  version    = "v5.38.0"
+#  name       = "loki"
+#  chart      = "loki"
+#  repository = "https://grafana.github.io/helm-charts"
+#  version    = "v5.38.0"
  
-  values = [
-    file("${path.module}/helm-values/loki.yaml")
-  ]
-}
+#  values = [
+#    file("${path.module}/helm-values/loki.yaml")
+#  ]
+#}
 
 ## EKS / Tempo
 
@@ -468,5 +477,10 @@ resource "helm_release" "grafana" {
     name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
     value = module.eks_grafana_irsa_role.iam_role_arn
   }
+
+  depends_on = [
+    module.eks_grafana_irsa_role,
+    helm_release.karpenter
+  ]
 }
 
