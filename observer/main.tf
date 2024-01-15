@@ -366,6 +366,27 @@ resource "helm_release" "metrics_server" {
 }
 
 ## EKS / Cert Manager
+resource "helm_release" "cert_manager" {
+  create_namespace = true
+  namespace  = "cert-manager"
+
+  name       = "cert-manager"
+  chart      = "cert-manager"
+  repository = "https://charts.jetstack.io"
+  version    = "v1.13.3"
+ 
+  values = [
+    file("${path.module}/helm-values/cert-manager.yaml")
+  ]
+  set {
+    name  = "clusterName"
+    value = module.eks.cluster_name
+  }
+
+  depends_on = [
+    helm_release.karpenter
+  ]
+}
 
 ## EKS / Load Balancer Controller
 module "eks_load_balancer_controller_irsa_role" {
