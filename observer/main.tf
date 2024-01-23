@@ -183,6 +183,17 @@ module "eks" {
     adot = {
       addon_version = "v0.90.0-eksbuild.1"
       configuration_values = jsonencode({
+        collector: {
+          containerLogs: {
+            pipelines: {
+              logs: {
+                cloudwatchLogs: {
+                  enabled: true
+								}
+							}
+						}
+					}
+				}
         nodeSelector: {
           type: "core"
         }
@@ -239,9 +250,11 @@ module "eks" {
 module "karpenter" {
   source = "terraform-aws-modules/eks/aws//modules/karpenter"
 
-  cluster_name = module.eks.cluster_name
+  cluster_name           = module.eks.cluster_name
+  irsa_oidc_provider_arn = module.eks.oidc_provider_arn
 
-  irsa_oidc_provider_arn       = module.eks.oidc_provider_arn
+	enable_karpenter_instance_profile_creation = true
+
   iam_role_additional_policies = {
     AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
   }
@@ -254,7 +267,7 @@ resource "helm_release" "karpenter" {
   name       = "karpenter"
   chart      = "karpenter"
   repository = "oci://public.ecr.aws/karpenter"
-  version    = "v0.31.0"
+  version    = "v0.32.5"
 
   set {
     name  = "settings.aws.clusterName"
@@ -265,16 +278,12 @@ resource "helm_release" "karpenter" {
     value = module.eks.cluster_endpoint
   }
   set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = module.karpenter.irsa_arn
-  }
-  set {
-    name  = "settings.aws.defaultInstanceProfile"
-    value = module.karpenter.instance_profile_name
-  }
-  set {
     name  = "settings.aws.interruptionQueueName"
     value = module.karpenter.queue_name
+  }
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.karpenter.irsa_arn
   }
 
   depends_on = [
@@ -282,32 +291,36 @@ resource "helm_release" "karpenter" {
   ]
 }
 
-resource "kubectl_manifest" "karpenter_provisioner_core" {
+resource "kubectl_manifest" "karpenter_nodepool_core" {
   yaml_body = <<-YAML
-    apiVersion: karpenter.sh/v1alpha5
-    kind: Provisioner
+    apiVersion: karpenter.sh/v1beta1
+    kind: NodePool
     metadata:
       name: core
     spec:
-      providerRef:
-        name: default
-      ttlSecondsAfterEmpty: 30
-      requirements:
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["on-demand"]
-        - key: karpenter.k8s.aws/instance-family
-          operator: In
-          values: ["m5"]
-        - key: karpenter.k8s.aws/instance-size
-          operator: In
-          values: ["xlarge"]
-      labels:
-        type: core
-      taints:
-      - key: type
-        value: core
-        effect: NoSchedule
+      template:
+        metadata:
+          labels:
+            type: core
+        spec:
+          nodeClassRef:
+            name: default
+          requirements:
+            - key: karpenter.sh/capacity-type
+              operator: In
+              values: ["on-demand"]
+            - key: karpenter.k8s.aws/instance-family
+              operator: In
+              values: ["m5"]
+            - key: karpenter.k8s.aws/instance-size
+              operator: In
+              values: ["xlarge"]
+          taints:
+          - key: type
+            value: core
+            effect: NoSchedule
+      consolidationPolicy: WhenEmpty
+      consolidateAfter: 30s
   YAML
 
   depends_on = [
@@ -315,32 +328,32 @@ resource "kubectl_manifest" "karpenter_provisioner_core" {
   ]
 }
 
-resource "kubectl_manifest" "karpenter_provisioner_default" {
+resource "kubectl_manifest" "karpenter_nodepool_default" {
   yaml_body = <<-YAML
-    apiVersion: karpenter.sh/v1alpha5
-    kind: Provisioner
+    apiVersion: karpenter.sh/v1beta1
+    kind: NodePool
     metadata:
       name: default
     spec:
-      providerRef:
-        name: default
-      ttlSecondsAfterEmpty: 30
-      requirements:
-        - key: karpenter.sh/capacity-type
-          operator: In
-          values: ["on-demand"]
-        - key: karpenter.k8s.aws/instance-family
-          operator: In
-          values: ["m6i"]
-        - key: karpenter.k8s.aws/instance-size
-          operator: In
-          values: ["large", "xlarge"]
-      labels:
-        type: service
-      limits:
-        resources:
-          cpu: 1000
-          memory: 1000Gi
+      template:
+        metadata:
+          labels:
+            type: service
+        spec:
+          nodeClassRef:
+            name: default
+          requirements:
+            - key: karpenter.sh/capacity-type
+              operator: In
+              values: ["on-demand"]
+            - key: karpenter.k8s.aws/instance-family
+              operator: In
+              values: ["m5"]
+            - key: karpenter.k8s.aws/instance-size
+              operator: In
+              values: ["xlarge"]
+      consolidationPolicy: WhenEmpty
+      consolidateAfter: 30s
   YAML
 
   depends_on = [
@@ -348,17 +361,21 @@ resource "kubectl_manifest" "karpenter_provisioner_default" {
   ]
 }
 
-resource "kubectl_manifest" "karpenter_node_template" {
+resource "kubectl_manifest" "karpenter_ec2nodeclass_default" {
   yaml_body = <<-YAML
-    apiVersion: karpenter.k8s.aws/v1alpha1
-    kind: AWSNodeTemplate
+    apiVersion: karpenter.k8s.aws/v1beta1
+    kind: EC2NodeClass
     metadata:
       name: default
     spec:
-      subnetSelector:
-        karpenter.sh/discovery: ${module.eks.cluster_name}
-      securityGroupSelector:
-        karpenter.sh/discovery: ${module.eks.cluster_name}
+      amiFamily: AL2
+      role: ${module.karpenter.role_name}
+      subnetSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${module.eks.cluster_name}
+      securityGroupSelectorTerms:
+        - tags:
+            karpenter.sh/discovery: ${module.eks.cluster_name}
       tags:
         karpenter.sh/discovery: ${module.eks.cluster_name}
   YAML
