@@ -183,17 +183,6 @@ module "eks" {
     adot = {
       addon_version = "v0.90.0-eksbuild.1"
       configuration_values = jsonencode({
-        collector: {
-          containerLogs: {
-            pipelines: {
-              logs: {
-                cloudwatchLogs: {
-                  enabled: true
-								}
-							}
-						}
-					}
-				}
         nodeSelector: {
           type: "core"
         }
@@ -385,19 +374,6 @@ resource "kubectl_manifest" "karpenter_ec2nodeclass_default" {
   ]
 }
 
-## EKS / Metric Server
-resource "helm_release" "metrics_server" {
-  namespace  = "kube-system"
-  name       = "metrics-server"
-  chart      = "metrics-server"
-  repository = "https://kubernetes-sigs.github.io/metrics-server"
-  version    = "v3.11.0"
-
-  values = [
-    file("${path.module}/helm-values/metrics-server.yaml")
-  ]
-}
-
 ## EKS / Cert Manager
 resource "helm_release" "cert_manager" {
   create_namespace = true
@@ -466,21 +442,6 @@ resource "helm_release" "aws_load_balancer_controller" {
   ]
 }
 
-## EKS / ArgoCD
-#resource "helm_release" "argo_cd" {
-#  namespace        = "argo-cd"
-#  create_namespace = true
-
-#  name       = "argo-cd"
-#  chart      = "argo-cd"
-#  repository = "https://argoproj.github.io/argo-helm"
-#  version    = "5.50.1"
-
-#  values = [
-#    file("${path.module}/helm-values/argo-cd.yaml")
-#  ]
-#}
-
 ## EKS / Loki
 #resource "helm_release" "loki" {
 #  namespace        = "monitoring"
@@ -497,24 +458,21 @@ resource "helm_release" "aws_load_balancer_controller" {
 #}
 
 ## EKS / Tempo
+resource "helm_release" "tempo" {
+  namespace        = "monitoring"
+  create_namespace = true
 
-## EKS / Grafana 
-module "eks_grafana_irsa_role" {
-  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-
-  role_name        = format("eks-grafana-%s", local.name)
-  role_policy_arns = {
-    policy = "arn:aws:iam::aws:policy/AmazonPrometheusQueryAccess"
-  }
-
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks.oidc_provider_arn
-      namespace_service_accounts = ["monitoring:grafana"]
-    }
-  }
+  name       = "tempo"
+  chart      = "tempo"
+  repository = "https://grafana.github.io/helm-charts"
+  version    = "v1.7.1"
+ 
+  values = [
+    file("${path.module}/helm-values/tempo.yaml")
+  ]
 }
 
+## EKS / Grafana 
 resource "helm_release" "grafana" {
   namespace        = "monitoring"
   create_namespace = true
@@ -527,13 +485,8 @@ resource "helm_release" "grafana" {
   values = [
     file("${path.module}/helm-values/grafana.yaml")
   ]
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = module.eks_grafana_irsa_role.iam_role_arn
-  }
 
   depends_on = [
-    module.eks_grafana_irsa_role,
     helm_release.karpenter
   ]
 }
