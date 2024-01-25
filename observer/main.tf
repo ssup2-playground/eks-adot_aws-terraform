@@ -53,6 +53,12 @@ provider "kubectl" {
   }
 }
 
+provider "opensearch" {
+  url         = module.opensearch.cluster_endpoint
+  aws_region  = aws_opensearch_domain.opensearch.endpoint
+  healthcheck = false
+}
+
 ## Data
 data "aws_availability_zones" "available" {}
 
@@ -491,3 +497,48 @@ resource "helm_release" "grafana" {
   ]
 }
 
+## CloudWatch Log Group
+resource "aws_cloudwatch_log_group" "onebyone" {
+  name = format("%s-onebyone", local.name)
+}
+
+resource "aws_cloudwatch_log_group" "atonce" {
+  name = format("%s-atonce", local.name)
+}
+
+## OpenSearch
+resource "aws_opensearch_domain" "opensearch" {
+  domain_name    = format("%s-opensearch", local.name)
+  engine_version = "OpenSearch_2.11"
+
+  cluster_config {
+    instance_type = "m5.xlarge.search"
+  }
+
+  advanced_security_options {
+	  enabled                        = true
+    internal_user_database_enabled = true
+    master_user_options {
+      master_user_name     = "admin"
+      master_user_password = "Admin123!"
+    }
+  }
+
+  encrypt_at_rest {
+    enabled = true
+  }
+
+  domain_endpoint_options {
+    enforce_https       = true
+    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
+  }
+
+  node_to_node_encryption {
+    enabled = true
+  }
+
+  ebs_options {
+    ebs_enabled = true
+    volume_size = 20
+  }
+}
