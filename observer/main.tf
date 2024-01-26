@@ -128,7 +128,7 @@ module "vpc" {
 module "prometheus" {
   source = "terraform-aws-modules/managed-service-prometheus/aws"
 
-  workspace_alias = format("%s-ob-amp", local.name)
+  workspace_alias = format("%s-amp", local.name)
 }
 
 ## EKS
@@ -499,16 +499,16 @@ resource "helm_release" "grafana" {
 
 ## CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "onebyone" {
-  name = format("%s-ob-onebyone", local.name)
+  name = format("%s-onebyone", local.name)
 }
 
 resource "aws_cloudwatch_log_group" "atonce" {
-  name = format("%s-ob-atonce", local.name)
+  name = format("%s-atonce", local.name)
 }
 
 ## OpenSearch
 resource "aws_opensearch_domain" "opensearch" {
-  domain_name    = format("%s-ob-opensearch", local.name)
+  domain_name    = format("%s-opensearch", local.name)
   engine_version = "OpenSearch_2.11"
 
   cluster_config {
@@ -602,7 +602,7 @@ resource "aws_iam_role" "opensearch_injest" {
 }
 
 resource "awscc_osis_pipeline" "metric_onebyone" {
-  pipeline_name = "metric-onebyone"
+  pipeline_name = format("%s-metric-oneone", local.name)
   min_units     = 1
   max_units     = 4
 
@@ -624,6 +624,115 @@ otel-metrics-onebyone-pipeline:
 EOF
 
   depends_on = [
+	  aws_opensearch_domain.opensearch,
+    aws_iam_role.opensearch_injest
+  ]
+}
+
+resource "awscc_osis_pipeline" "metric_atonce" {
+  pipeline_name = format("%s-metric-atonce", local.name)
+  min_units     = 1
+  max_units     = 4
+
+  pipeline_configuration_body = <<EOF
+version: "2"
+otel-metrics-atonce-pipeline:
+  source:
+    otel_metrics_source:
+      path: "/metrics/atonce"
+  processor:
+    - otel_metrics:
+  sink:
+    - opensearch:
+        index: "metrics_atonce"
+        hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+        aws:                  
+          sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+          region: "${local.region}"
+EOF
+
+  depends_on = [
+	  aws_opensearch_domain.opensearch,
+    aws_iam_role.opensearch_injest
+  ]
+}
+
+resource "awscc_osis_pipeline" "log_onebyone" {
+  pipeline_name = format("%s-log-oneone", local.name)
+  min_units     = 1
+  max_units     = 4
+
+  pipeline_configuration_body = <<EOF
+version: "2"
+otel-logs-pipeline:
+  source:
+    otel_logs_source:
+      path: "/logs/onebyone"
+  processor:
+    - parse_json:
+        source: "body"                  
+    - parse_json:
+        source: "kubernetes"                  
+    - parse_json:
+        source: "annotations"                  
+    - parse_json:
+        source: "labels"              
+    - delete_entries:
+        with_keys: ["body", "kubernetes", "annotations", "labels"]
+    - date:
+        from_time_received: true
+        destination: "@timestamp"           
+  sink:
+    - opensearch:                  
+        index: "logs_onebyone"
+        hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+        aws:                  
+          sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+          region: "${local.region}"
+EOF
+
+  depends_on = [
+	  aws_opensearch_domain.opensearch,
+    aws_iam_role.opensearch_injest
+  ]
+}
+
+resource "awscc_osis_pipeline" "log_atonce" {
+  pipeline_name = format("%s-log-atonce", local.name)
+  min_units     = 1
+  max_units     = 4
+
+  pipeline_configuration_body = <<EOF
+version: "2"
+otel-logs-pipeline:
+  source:
+    otel_logs_source:
+      path: "/logs/atonce"
+  processor:
+    - parse_json:
+        source: "body"                  
+    - parse_json:
+        source: "kubernetes"                  
+    - parse_json:
+        source: "annotations"                  
+    - parse_json:
+        source: "labels"              
+    - delete_entries:
+        with_keys: ["body", "kubernetes", "annotations", "labels"]
+    - date:
+        from_time_received: true
+        destination: "@timestamp"           
+  sink:
+    - opensearch:                  
+        index: "logs_atonce"
+        hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+        aws:                  
+          sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+          region: "${local.region}"
+EOF
+
+  depends_on = [
+	  aws_opensearch_domain.opensearch,
     aws_iam_role.opensearch_injest
   ]
 }
