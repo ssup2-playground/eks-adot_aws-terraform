@@ -736,3 +736,56 @@ EOF
     aws_iam_role.opensearch_injest
   ]
 }
+
+
+resource "awscc_osis_pipeline" "trace" {
+  pipeline_name = format("%s-trace", local.name)
+  min_units     = 1
+  max_units     = 4
+
+  pipeline_configuration_body = <<EOF
+version: "2"
+entry-pipeline:
+  source:
+    otel_trace_source:
+      path: "/traces"
+  processor:
+    - trace_peer_forwarder:
+  sink:
+    - pipeline:
+        name: "span-pipeline"
+    - pipeline:
+        name: "service-map-pipeline"
+span-pipeline:
+  source:
+    pipeline:
+      name: "entry-pipeline"
+  processor:
+    - otel_traces:
+  sink:
+    - opensearch:
+        index_type: "trace-analytics-raw"
+        hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+        aws:                  
+          sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+          region: "${local.region}"
+service-map-pipeline:
+  source:
+    pipeline:
+      name: "entry-pipeline"
+  processor:
+    - service_map:
+  sink:
+    - opensearch:
+        index_type: "trace-analytics-service-map"
+        hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+        aws:                  
+          sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+          region: "${local.region}"
+EOF
+
+  depends_on = [
+	  aws_opensearch_domain.opensearch,
+    aws_iam_role.opensearch_injest
+  ]
+}
