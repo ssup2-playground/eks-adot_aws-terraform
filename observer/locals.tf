@@ -1,5 +1,5 @@
 locals {
-  name = "ts-eks-adot-ob"
+  name = "ts-eks-adot"
 
   region   = "ap-northeast-2"
   azs      = slice(data.aws_availability_zones.available.names, 0, 3)

@@ -54,8 +54,8 @@ provider "kubectl" {
 }
 
 provider "opensearch" {
-  url         = module.opensearch.cluster_endpoint
-  aws_region  = aws_opensearch_domain.opensearch.endpoint
+  url         = aws_opensearch_domain.opensearch.endpoint
+  aws_region  = local.region
   healthcheck = false
 }
 
@@ -85,7 +85,7 @@ resource "aws_vpc_endpoint" "s3_endpoint" {
   service_name = "com.amazonaws.${local.region}.s3"
 
   tags = {
-    Name = format("%s-s3-endpoint", local.name)
+    Name = format("%s-ob-s3-endpoint", local.name)
   }
 }
 
@@ -99,7 +99,7 @@ resource "aws_vpc_endpoint_route_table_association" "s3_endpoint_routetable" {
 module "vpc" {
   source = "terraform-aws-modules/vpc/aws"
 
-  name = format("%s-vpc", local.name)
+  name = format("%s-ob-vpc", local.name)
 
   cidr             = local.vpc_cidr
   azs              = local.azs
@@ -119,8 +119,8 @@ module "vpc" {
   }
 
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb" = 1                            # for AWS Load Balancer Controller
-    "karpenter.sh/discovery"          = format("%s-eks", local.name) # for Karpenter
+    "kubernetes.io/role/internal-elb" = 1                               # for AWS Load Balancer Controller
+    "karpenter.sh/discovery"          = format("%s-ob-eks", local.name) # for Karpenter
   }
 }
 
@@ -128,14 +128,14 @@ module "vpc" {
 module "prometheus" {
   source = "terraform-aws-modules/managed-service-prometheus/aws"
 
-  workspace_alias = format("%s-amp", local.name)
+  workspace_alias = format("%s-ob-amp", local.name)
 }
 
 ## EKS
 module "eks" {
   source = "terraform-aws-modules/eks/aws"
 
-  cluster_name = format("%s-eks", local.name)
+  cluster_name = format("%s-ob-eks", local.name)
   cluster_version = "1.28"
 
   vpc_id                          = module.vpc.vpc_id
@@ -215,7 +215,7 @@ module "eks" {
 
   ## Node Security Group
   node_security_group_tags = {
-    "karpenter.sh/discovery" = format("%s-eks", local.name) # for Karpenter
+    "karpenter.sh/discovery" = format("%s-ob-eks", local.name) # for Karpenter
   }
   node_security_group_additional_rules = {
     ingress_self_all = {
@@ -407,7 +407,7 @@ resource "helm_release" "cert_manager" {
 module "eks_load_balancer_controller_irsa_role" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
 
-  role_name                              = format("eks-aws-load-balancer-controller-%s", local.name)
+  role_name                              = format("eks-aws-load-balancer-controller-%s-ob", local.name)
   attach_load_balancer_controller_policy = true
 
   oidc_providers = {
@@ -499,16 +499,16 @@ resource "helm_release" "grafana" {
 
 ## CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "onebyone" {
-  name = format("%s-onebyone", local.name)
+  name = format("%s-ob-onebyone", local.name)
 }
 
 resource "aws_cloudwatch_log_group" "atonce" {
-  name = format("%s-atonce", local.name)
+  name = format("%s-ob-atonce", local.name)
 }
 
 ## OpenSearch
 resource "aws_opensearch_domain" "opensearch" {
-  domain_name    = format("%s-opensearch", local.name)
+  domain_name    = format("%s-ob-opensearch", local.name)
   engine_version = "OpenSearch_2.11"
 
   cluster_config {
@@ -566,4 +566,64 @@ data "aws_iam_policy_document" "opensearch_policy" {
 resource "aws_opensearch_domain_policy" "opensearch_access_policy" {
   domain_name     = aws_opensearch_domain.opensearch.domain_name
   access_policies = data.aws_iam_policy_document.opensearch_policy.json
+}
+
+## OpenSearch / Injest
+resource "aws_iam_role" "opensearch_injest" {
+  name = "OpenSearchInjest"
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "sts:AssumeRole"
+        Principal = {
+          Service = "osis-pipelines.amazonaws.com"
+        }	
+      },
+    ]
+  })
+
+  inline_policy {
+    name = "OpenSearchInjest"
+
+    policy = jsonencode({
+      Version = "2012-10-17"
+      Statement = [
+        {
+          Effect   = "Allow"
+          Action   = ["es:DescribeDomain", "es:ESHttp*"]
+          Resource = "*"
+        },
+      ]
+    })
+  }
+}
+
+resource "awscc_osis_pipeline" "metric_onebyone" {
+  pipeline_name = "metric-onebyone"
+  min_units     = 1
+  max_units     = 4
+
+  pipeline_configuration_body = <<EOF
+version: "2"
+otel-metrics-onebyone-pipeline:
+  source:
+    otel_metrics_source:
+      path: "/metrics/onebyone"
+  processor:
+    - otel_metrics:
+  sink:
+    - opensearch:
+        index: "metrics_onebyone"
+        hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+        aws:                  
+          sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+          region: "${local.region}"
+EOF
+
+  depends_on = [
+    aws_iam_role.opensearch_injest
+  ]
 }
