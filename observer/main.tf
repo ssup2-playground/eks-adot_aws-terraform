@@ -229,7 +229,7 @@ module "eks_observer" {
   cluster_addons = {
     coredns = {
       addon_version = "v1.10.1-eksbuild.5"
-      configuration_values = jsonencode(file("${path.module}/eks-addon-configs/coredns.json"))
+      configuration_values = file("${path.module}/eks-addon-configs/coredns.json")
     }
     vpc-cni = {
       addon_version = "v1.14.1-eksbuild.1"
@@ -239,11 +239,11 @@ module "eks_observer" {
     }
     aws-ebs-csi-driver = {
       addon_version = "v1.25.0-eksbuild.1"
-      configuration_values = jsonencode(file("${path.module}/eks-addon-configs/ebs-csi.json"))
+      configuration_values = file("${path.module}/eks-addon-configs/ebs-csi.json")
     }
     adot = {
       addon_version = "v0.90.0-eksbuild.1"
-      configuration_values = jsonencode(file("${path.module}/eks-addon-configs/adot.json"))
+      configuration_values = file("${path.module}/eks-addon-configs/adot.json")
     }
   }
 
@@ -327,6 +327,7 @@ resource "helm_release" "observer_karpenter" {
   }
 
   depends_on = [
+    module.eks_observer,
     module.karpenter_observer
   ]
 }
@@ -618,7 +619,7 @@ resource "awscc_osis_pipeline" "metrics_onebyone" {
   ]
 }
 
-resource "awscc_osis_pipeline" "metric_atonce" {
+resource "awscc_osis_pipeline" "metrics_atonce" {
   pipeline_name = format("%s-mt-atonce", local.name)
   min_units     = 1
   max_units     = 4

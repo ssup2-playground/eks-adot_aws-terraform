@@ -19,10 +19,10 @@ span-pipeline:
   sink:
   - opensearch:
       index_type: "trace-analytics-raw"
-      hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+      hosts: ["https://${opensearch_endpoint}"]
       aws:
-        sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
-        region: "${local.region}"
+        sts_role_arn: "${sts_role_arn}"
+        region: "${region}"
 service-map-pipeline:
   source:
     pipeline:
@@ -32,7 +32,7 @@ service-map-pipeline:
   sink:
   - opensearch:
       index_type: "trace-analytics-service-map"
-      hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+      hosts: ["https://${opensearch_endpoint}"]
       aws:
-        sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
-        region: "${local.region}"
+        sts_role_arn: "${sts_role_arn}"
+        region: "${region}"

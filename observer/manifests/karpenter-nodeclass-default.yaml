@@ -7,10 +7,10 @@ spec:
   role: ${ec2_role_name}
   subnetSelectorTerms:
   - tags:
-    karpenter.sh/discovery: ${cluster_name}
+      karpenter.sh/discovery: ${cluster_name}
   securityGroupSelectorTerms:
   - tags:
-    karpenter.sh/discovery: ${cluster_name}
+      karpenter.sh/discovery: ${cluster_name}
   tags:
     karpenter.sh/discovery: ${cluster_name}
 
