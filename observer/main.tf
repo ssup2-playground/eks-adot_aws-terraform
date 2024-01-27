@@ -144,6 +144,22 @@ resource "aws_vpc_endpoint_route_table_association" "s3_endpoint_routetable" {
   route_table_id  = module.vpc_observer.private_route_table_ids[count.index]
 }
 
+## CloudWatch Log Group
+resource "aws_cloudwatch_log_group" "onebyone" {
+  name = format("%s-onebyone", local.name)
+}
+
+resource "aws_cloudwatch_log_group" "atonce" {
+  name = format("%s-atonce", local.name)
+}
+
+## AMP
+module "prometheus" {
+  source = "terraform-aws-modules/managed-service-prometheus/aws"
+
+  workspace_alias = format("%s-amp", local.name)
+}
+
 ## VPC
 module "vpc_observer" {
   source = "terraform-aws-modules/vpc/aws"
@@ -199,13 +215,6 @@ module "vpc_workload" {
     "kubernetes.io/role/internal-elb" = 1                                 # for AWS Load Balancer Controller
     "karpenter.sh/discovery"          = format("%s-work-eks", local.name) # for Karpenter
   }
-}
-
-## AMP
-module "prometheus" {
-  source = "terraform-aws-modules/managed-service-prometheus/aws"
-
-  workspace_alias = format("%s-amp", local.name)
 }
 
 ## EKS Observer
@@ -327,7 +336,6 @@ resource "helm_release" "observer_karpenter" {
   }
 
   depends_on = [
-    module.eks_observer,
     module.karpenter_observer
   ]
 }
@@ -496,13 +504,234 @@ resource "helm_release" "observer_grafana" {
   ]
 }
 
-## CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "onebyone" {
-  name = format("%s-onebyone", local.name)
+## EKS Workload
+module "eks_workload" {
+  providers = {
+    kubernetes = kubernetes.workload
+  }
+
+  source = "terraform-aws-modules/eks/aws"
+
+  cluster_name = format("%s-work-eks", local.name)
+  cluster_version = "1.28"
+
+  vpc_id                          = module.vpc_workload.vpc_id
+  subnet_ids                      = module.vpc_workload.private_subnets
+  cluster_endpoint_public_access  = true
+
+  manage_aws_auth_configmap = true
+
+  ## Addons
+  cluster_addons = {
+    coredns = {
+      addon_version = "v1.10.1-eksbuild.5"
+      configuration_values = file("${path.module}/eks-addon-configs/coredns.json")
+    }
+    vpc-cni = {
+      addon_version = "v1.14.1-eksbuild.1"
+    }
+    kube-proxy = {
+      addon_version = "v1.28.1-eksbuild.1"
+    }
+    aws-ebs-csi-driver = {
+      addon_version = "v1.25.0-eksbuild.1"
+      configuration_values = file("${path.module}/eks-addon-configs/ebs-csi.json")
+    }
+    adot = {
+      addon_version = "v0.90.0-eksbuild.1"
+      configuration_values = file("${path.module}/eks-addon-configs/adot.json")
+    }
+  }
+
+  ## Fargate
+  fargate_profiles = {
+    karpenter = {
+      selectors = [
+        { namespace = "karpenter" }
+      ]
+    }
+  }
+
+  ## Node Security Group
+  node_security_group_tags = {
+    "karpenter.sh/discovery" = format("%s-work-eks", local.name) # for Karpenter
+  }
+  node_security_group_additional_rules = {
+    ingress_self_all = {
+      description = "Node to node all ports/protocols"
+      protocol    = "-1"
+      from_port   = 0
+      to_port     = 0
+      type        = "ingress"
+      self        = true
+    }
+  }
+
+  aws_auth_roles = [
+    {
+      ## for Karpenter
+      rolearn  = module.karpenter_workload.role_arn
+      username = "system:node:{{EC2PrivateDNSName}}"
+      groups = [
+        "system:bootstrappers",
+        "system:nodes",
+      ]
+    }
+  ]
 }
 
-resource "aws_cloudwatch_log_group" "atonce" {
-  name = format("%s-atonce", local.name)
+## EKS Workload / Karpenter
+module "karpenter_workload" {
+  source = "terraform-aws-modules/eks/aws//modules/karpenter"
+
+  cluster_name           = module.eks_workload.cluster_name
+  irsa_oidc_provider_arn = module.eks_workload.oidc_provider_arn
+
+	enable_karpenter_instance_profile_creation = true
+
+  iam_role_additional_policies = {
+    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+  }
+}
+
+resource "helm_release" "workload_karpenter" {
+  provider = helm.workload 
+
+  namespace        = "karpenter"
+  create_namespace = true
+
+  name       = "karpenter"
+  chart      = "karpenter"
+  repository = "oci://public.ecr.aws/karpenter"
+  version    = "v0.32.5"
+
+  set {
+    name  = "settings.aws.clusterName"
+    value = module.eks_workload.cluster_name
+  }
+  set {
+    name  = "settings.aws.clusterEndpoint"
+    value = module.eks_workload.cluster_endpoint
+  }
+  set {
+    name  = "settings.aws.interruptionQueueName"
+    value = module.karpenter_workload.queue_name
+  }
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.karpenter_workload.irsa_arn
+  }
+
+  depends_on = [
+    module.karpenter_workload
+  ]
+}
+
+resource "kubectl_manifest" "workload_karpenter_nodepool_core" {
+  provider = kubectl.workload
+
+  yaml_body = file("${path.module}/manifests/karpenter-nodepool-core.yaml")
+
+  depends_on = [
+    helm_release.workload_karpenter
+  ]
+}
+
+resource "kubectl_manifest" "workload_karpenter_nodepool_default" {
+  provider = kubectl.workload
+
+  yaml_body = file("${path.module}/manifests/karpenter-nodepool-default.yaml")
+
+  depends_on = [
+    helm_release.workload_karpenter
+  ]
+}
+
+resource "kubectl_manifest" "workload_karpenter_ec2nodeclass_default" {
+  provider = kubectl.workload
+
+  yaml_body = templatefile("${path.module}/manifests/karpenter-nodeclass-default.yaml", 
+    { 
+      cluster_name = module.eks_workload.cluster_name
+      ec2_role_name = module.karpenter_workload.role_name
+    }
+  )
+
+  depends_on = [
+    helm_release.workload_karpenter
+  ]
+}
+
+## EKS Workload / Cert Manager
+resource "helm_release" "workload_cert_manager" {
+  provider = helm.workload  
+
+  create_namespace = true
+  namespace  = "cert-manager"
+
+  name       = "cert-manager"
+  chart      = "cert-manager"
+  repository = "https://charts.jetstack.io"
+  version    = "v1.13.3"
+ 
+  values = [
+    file("${path.module}/helm-values/cert-manager.yaml")
+  ]
+  set {
+    name  = "clusterName"
+    value = module.eks_workload.cluster_name
+  }
+
+  depends_on = [
+    helm_release.workload_karpenter
+  ]
+}
+
+## EKS Workload / Load Balancer Controller
+module "irsa_workload_load_balancer_controller" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name                              = format("irsa-workload-aws-load-balancer-controller-%s", local.name)
+  attach_load_balancer_controller_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_workload.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:aws-load-balancer-controller"]
+    }
+  }
+}
+
+resource "helm_release" "workload_aws_load_balancer_controller" {
+  provider = helm.workload  
+
+  namespace  = "kube-system"
+  name       = "aws-load-balancer-controller"
+  chart      = "aws-load-balancer-controller"
+  repository = "https://aws.github.io/eks-charts"
+  version    = "v1.6.2"
+ 
+  values = [
+    file("${path.module}/helm-values/aws-load-balancer-controller.yaml")
+  ]
+
+  set {
+    name  = "clusterName"
+    value = module.eks_workload.cluster_name
+  }
+  set {
+    name  = "serviceAccount.name"
+    value = "aws-load-balancer-controller"
+  }
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.irsa_workload_load_balancer_controller.iam_role_arn
+  }
+
+  depends_on = [
+    module.irsa_workload_load_balancer_controller,
+		helm_release.workload_karpenter
+  ]
 }
 
 ## OpenSearch
