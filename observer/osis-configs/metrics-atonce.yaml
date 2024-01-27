@@ -1,0 +1,14 @@
+version: "2"
+otel-metrics-atonce-pipeline:
+  source:
+    otel_metrics_source:
+      path: "/metrics/atonce"
+  processor:
+  - otel_metrics:
+  sink:
+  - opensearch:
+      index: "metrics_atonce"
+      hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+      aws:
+        sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+        region: "${local.region}"

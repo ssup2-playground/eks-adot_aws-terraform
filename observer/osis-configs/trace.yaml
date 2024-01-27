@@ -1,0 +1,38 @@
+version: "2"
+entry-pipeline:
+  source:
+    otel_trace_source:
+      path: "/traces"
+  processor:
+  - trace_peer_forwarder:
+  sink:
+  - pipeline:
+      name: "span-pipeline"
+  - pipeline:
+      name: "service-map-pipeline"
+span-pipeline:
+  source:
+    pipeline:
+      name: "entry-pipeline"
+  processor:
+  - otel_traces:
+  sink:
+  - opensearch:
+      index_type: "trace-analytics-raw"
+      hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+      aws:
+        sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+        region: "${local.region}"
+service-map-pipeline:
+  source:
+    pipeline:
+      name: "entry-pipeline"
+  processor:
+  - service_map:
+  sink:
+  - opensearch:
+      index_type: "trace-analytics-service-map"
+      hosts: ["https://${aws_opensearch_domain.opensearch.endpoint}"]
+      aws:
+        sts_role_arn: "${aws_iam_role.opensearch_injest.arn}"
+        region: "${local.region}"

@@ -1,0 +1,14 @@
+version: "2"
+otel-metrics-onebyone-pipeline:
+  source:
+    otel_metrics_source:
+      path: "/metrics/onebyone"
+  processor:
+  - otel_metrics:
+  sink:
+  - opensearch:
+      index: "metrics_onebyone"
+      hosts: ["https://${opensearch_endpoint}"]
+      aws:
+        sts_role_arn: "${sts_role_arn}"
+        region: "${region}"
