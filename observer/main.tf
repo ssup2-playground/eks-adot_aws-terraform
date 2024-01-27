@@ -217,6 +217,29 @@ module "vpc_workload" {
   }
 }
 
+module "tgw" {
+  source  = "terraform-aws-modules/transit-gateway/aws"
+
+  name = format("%s-tgw", local.name)
+
+  share_tgw                              = false
+  enable_dns_support                     = true
+  enable_default_route_table_propagation = true
+  enable_default_route_table_association = true
+
+  vpc_attachments = {
+    vpc_observer = {
+      vpc_id     = module.vpc_observer.vpc_id
+      subnet_ids = module.vpc_observer.private_subnets
+    }
+
+    vpc_workload = {
+      vpc_id     = module.vpc_workload.vpc_id
+      subnet_ids = module.vpc_workload.private_subnets
+    }
+  }
+}
+
 ## EKS Observer
 module "eks_observer" {
   providers = {
