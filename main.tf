@@ -427,7 +427,7 @@ resource "helm_release" "observer_cert_manager" {
 module "irsa_observer_load_balancer_controller" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
 
-  role_name                              = format("irsa-observer-aws-load-balancer-controller-%s", local.name)
+  role_name                              = format("%s-irsa-observer-aws-load-balancer-controller", local.name)
   attach_load_balancer_controller_policy = true
 
   oidc_providers = {
@@ -947,11 +947,11 @@ resource "awscc_osis_pipeline" "trace" {
   ]
 }
 
-## ADOT collector / CloudWatch Container Insight
-module "irsa_cloudwatch" {
+## ADOT Collector / CloudWatch Container Insight
+module "irsa_observer_adot_collector_ci" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
 
-  role_name                              = format("irsa-observer-adot-collector-ci-%s", local.name)
+  role_name                              = format("%s-irsa-observer-adot-collector-ci", local.name)
   attach_cloudwatch_observability_policy = true
 
   oidc_providers = {
@@ -960,4 +960,67 @@ module "irsa_cloudwatch" {
       namespace_service_accounts = ["monitoring:adot-collector-ci"]
     }
   }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+data "kubectl_file_documents" "observer_adot_ci" {
+  content = templatefile("${path.module}/manifests/adot-observer-ci.yaml",
+    {
+      ci_role_arn = module.irsa_observer_adot_collector_ci.iam_role_arn
+    }
+  )
+}
+
+resource "kubectl_manifest" "observer_adot_ci" {
+  provider = kubectl.observer
+
+  for_each = data.kubectl_file_documents.observer_adot_ci.manifests
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## ADOT Collector / CloudWatch Logs
+module "irsa_observer_adot_collector_cl" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name                              = format("%s-irsa-observer-adot-collector-cl", local.name)
+  attach_cloudwatch_observability_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["monitoring:adot-collector-cl"]
+    }
+  }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+data "kubectl_file_documents" "observer_adot_cl" {
+  content = templatefile("${path.module}/manifests/adot-observer-cl.yaml",
+    {
+      region         = local.region
+      cl_role_arn    = module.irsa_observer_adot_collector_cl.iam_role_arn
+      log_group_name = aws_cloudwatch_log_group.onebyone.name
+    }
+  )
+}
+
+resource "kubectl_manifest" "observer_adot_cl" {
+  provider = kubectl.observer
+
+  for_each = data.kubectl_file_documents.observer_adot_cl.manifests
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
 }

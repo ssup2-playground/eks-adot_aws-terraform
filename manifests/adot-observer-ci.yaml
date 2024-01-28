@@ -5,7 +5,7 @@ metadata:
   namespace: monitoring
   name: adot-collector-ci
   annotations:
-    eks.amazonaws.com/role-arn: ${cloudwatch_role_arn}
+    eks.amazonaws.com/role-arn: ${ci_role_arn}
 
 ---
 kind: ClusterRole
@@ -62,13 +62,14 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   namespace: monitoring
-  name: cloudwatch-ci
+  name: adot-ci
 spec:
   mode: daemonset
   serviceAccount: adot-collector-ci
   securityContext:
     runAsUser: 0
     runAsGroup: 0
+  hostNetwork: false
   resources:
     limits:
       cpu:  200m
