@@ -946,3 +946,18 @@ resource "awscc_osis_pipeline" "trace" {
     aws_iam_role.opensearch_injest
   ]
 }
+
+## ADOT collector / CloudWatch Container Insight
+module "irsa_cloudwatch" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name                              = format("irsa-observer-adot-collector-ci-%s", local.name)
+  attach_cloudwatch_observability_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["monitoring:adot-collector-ci"]
+    }
+  }
+}
