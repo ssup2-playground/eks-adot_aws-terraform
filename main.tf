@@ -130,7 +130,7 @@ resource "aws_cloudwatch_log_group" "atonce" {
 module "prometheus" {
   source = "terraform-aws-modules/managed-service-prometheus/aws"
 
-  workspace_alias = format("%s-amp", local.name)
+  workspace_alias = format("%s-amp-onebyone", local.name)
 }
 
 ## VPC
@@ -1028,6 +1028,25 @@ resource "kubectl_manifest" "observer_adot_cl" {
 
   for_each = data.kubectl_file_documents.observer_adot_cl.manifests
   yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## ADOT Collector / AMP
+module "irsa_observer_adot_collector_amp" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name                                       = format("%s-irsa-observer-adot-collector-amp", local.name)
+  attach_amazon_managed_service_prometheus_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["monitoring:adot-collector-amp"]
+    }
+  }
 
   depends_on = [
     module.eks_observer

@@ -1,0 +1,181 @@
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: monitoring
+  name: adot-collector-amp
+  annotations:
+    eks.amazonaws.com/role-arn: "arn:aws:iam::727618787612:role/ts-eks-adot-irsa-observer-adot-collector-amp"
+
+---
+kind: ClusterRole
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adot-collector-amp-role
+rules:
+- apiGroups: [""]
+  resources:
+  - nodes
+  - nodes/proxy
+  - nodes/metrics
+  - services
+  - endpoints
+  - pods
+  verbs: ["get", "list", "watch"]
+- apiGroups:
+  - extensions
+  resources:
+  - ingresses
+  verbs: ["get", "list", "watch"]
+- nonResourceURLs: ["/metrics"]
+  verbs: ["get"]
+
+---
+kind: ClusterRoleBinding
+apiVersion: rbac.authorization.k8s.io/v1
+metadata:
+  name: adot-collector-amp-role-binding
+subjects:
+- kind: ServiceAccount
+  namespace: monitoring
+  name: adot-collector-amp
+roleRef:
+  kind: ClusterRole
+  name: adot-collector-amp-role
+  apiGroup: rbac.authorization.k8s.io
+
+---
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  namespace: monitoring
+  name: adot-amp
+spec:
+  mode: deployment
+  serviceAccount: adot-collector-amp
+  hostNetwork: false
+  replicas: 2
+  resources:
+    limits:
+      cpu: "1"
+      memory: 2Gi
+    requests:
+      cpu: 200m
+      memory: 400Mi 
+  env:
+  - name: K8S_NODE_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+  - name: HOST_IP
+    valueFrom:
+      fieldRef:
+        fieldPath: status.hostIP
+  - name: HOST_NAME
+    valueFrom:
+      fieldRef:
+        fieldPath: spec.nodeName
+  - name: K8S_NAMESPACE
+    valueFrom:
+       fieldRef:
+         fieldPath: metadata.namespace
+  volumes:
+  - name: rootfs
+    hostPath:
+      path: /
+  - name: dockersock
+    hostPath:
+      path: /var/run/docker.sock
+  - name: varlibdocker
+    hostPath:
+      path: /var/lib/docker
+  - name: containerdsock
+    hostPath:
+      path: /run/containerd/containerd.sock
+  - name: sys
+    hostPath:
+      path: /sys
+  - name: devdisk
+    hostPath:
+      path: /dev/disk/
+  volumeMounts:
+  - name: rootfs
+    mountPath: /rootfs
+    readOnly: true
+  - name: dockersock
+    mountPath: /var/run/docker.sock
+    readOnly: true
+  - name: containerdsock
+    mountPath: /run/containerd/containerd.sock
+  - name: varlibdocker
+    mountPath: /var/lib/docker
+    readOnly: true
+  - name: sys
+    mountPath: /sys
+    readOnly: true
+  - name: devdisk
+    mountPath: /dev/disk
+    readOnly: true
+
+  config: |
+    receivers:
+      prometheus:
+        config:
+          global:
+            scrape_interval: 30s
+            scrape_timeout: 10s
+          scrape_configs:
+          - job_name: 'kubernetes-apiservers'
+            scheme: https
+            kubernetes_sd_configs:
+            - role: endpoints
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            relabel_configs:
+            - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
+              action: keep
+              regex: kubernetes;https 
+          - job_name: 'kubernetes-nodes'
+            scheme: https
+            kubernetes_sd_configs:
+            - role: node
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+          - job_name: 'kubernetes-cadvisor'
+            scheme: https
+            metrics_path: /metrics/cadvisor
+            kubernetes_sd_configs:
+            - role: node
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            relabel_configs:
+            - action: labelmap
+              regex: __meta_kubernetes_node_label_(.+)
+
+    exporters:
+      prometheusremotewrite:
+        # replace this with your endpoint
+        endpoint: "https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-a1ed9c7b-90c1-4f64-8556-84af2a5a3dd9/api/v1/remote_write"
+        auth:
+          authenticator: sigv4auth
+
+    extensions:
+      health_check:
+      sigv4auth:
+        region: "ap-northeast-2"
+
+    service:
+      extensions: [health_check, sigv4auth]
+      pipelines:
+        metrics:
+          receivers: [prometheus]
+          exporters: [prometheusremotewrite]
