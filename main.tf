@@ -714,7 +714,7 @@ resource "helm_release" "workload_cert_manager" {
 module "irsa_workload_load_balancer_controller" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
 
-  role_name                              = format("irsa-workload-aws-load-balancer-controller-%s", local.name)
+  role_name                              = format("%s-irsa-workload-aws-load-balancer-controller", local.name)
   attach_load_balancer_controller_policy = true
 
   oidc_providers = {
@@ -821,7 +821,7 @@ resource "aws_opensearch_domain_policy" "opensearch_access_policy" {
 
 ## OpenSearch / Injest
 resource "aws_iam_role" "opensearch_injest" {
-  name = "OpenSearchInjest"
+  name = format("%s-opensearch-injest", local.name)
 
   assume_role_policy = jsonencode({
     Version = "2012-10-17"
