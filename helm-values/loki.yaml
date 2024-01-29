@@ -1,37 +1,28 @@
 loki:
-  storage:
-    type: "s3"
-    bucketNames:
-      chunks: "ts-eks-full-ops-log"
-      ruler: "ts-eks-full-ops-log"
-      admin: "ts-eks-full-ops-log"
-    s3:
-      endpoint: "s3.ap-northeast-2.amazonaws.com"
-      accessKeyId: "${GRAFANA-LOKI-S3-ACCESKEYID}"
-      secretAccessKey: "${GRAFANA-LOKI-S3-SECRETACCESSKEY}"
-      s3ForcePathStyle: "false"
-      insecure: "false"
+  type: "filesystem" 
 
 test:
-  enabled: "false"
+  enabled: false
 
 monitoring:
   dashboards:
-    enabled: "false"
+    enabled: false
 
   rules:
-    enabled: "false"
+    enabled: false
 
   serviceMonitor:
-    enabled: "false"
+    enabled: false
 
   selfMonitoring:
-    enabled: "false"
+    enabled: false
 
   lokiCanary:
-    enabled: "false"
+    enabled: false
 
 write:
+  replicas: 1
+
   nodeSelector:
     type: "service"
 
@@ -41,6 +32,8 @@ write:
     whenUnsatisfiable: "DoNotSchedule"
 
 read:
+  replicas: 1
+
   nodeSelector:
     type: "service"
 
@@ -50,25 +43,7 @@ read:
     whenUnsatisfiable: "DoNotSchedule"
 
 backend:
-  extraArgs:
-  - '-config.expand-env=true'
-
-  extraEnv:
-  - name: GRAFANA-LOKI-S3-ENDPOINT 
-    valueFrom:
-      secretKeyRef:
-        name: loki-secrets
-        key: grafana-loki-s3-endpoint
-  - name: GRAFANA-LOKI-S3-ACCESKEYID 
-    valueFrom:
-      secretKeyRef:
-        name: loki-secrets
-        key: grafana-loki-s3-accessKeyId
-  - name: GRAFANA-LOKI-S3-SECRETACCESSKEY
-    valueFrom:
-      secretKeyRef:
-        name: loki-secrets
-        key: grafana-loki-s3-secretAccessKey
+  replicas: 1
 
   nodeSelector:
     type: "service"

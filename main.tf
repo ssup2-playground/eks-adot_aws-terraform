@@ -117,33 +117,6 @@ data "aws_ecrpublic_authorization_token" "token" {
   provider = aws.ecr
 }
 
-## S3
-resource "aws_s3_bucket" "log" {
-  bucket = local.s3_bucket_log
-}
-
-resource "aws_s3_object" "loki" {
-  bucket = aws_s3_bucket.log.id
-  acl    = "private"
-  key    = format("%s/", local.s3_dir_loki)
-  source = "/dev/null"
-}
-
-resource "aws_vpc_endpoint" "s3_endpoint" {
-  vpc_id       = module.vpc_observer.vpc_id
-  service_name = "com.amazonaws.${local.region}.s3"
-
-  tags = {
-    Name = format("%s-ob-s3-endpoint", local.name)
-  }
-}
-
-resource "aws_vpc_endpoint_route_table_association" "s3_endpoint_routetable" {
-  count           = length(local.azs)
-  vpc_endpoint_id = aws_vpc_endpoint.s3_endpoint.id
-  route_table_id  = module.vpc_observer.private_route_table_ids[count.index]
-}
-
 ## CloudWatch Log Group
 resource "aws_cloudwatch_log_group" "onebyone" {
   name = format("%s-onebyone", local.name)
@@ -271,6 +244,7 @@ module "eks_observer" {
     }
     aws-ebs-csi-driver = {
       addon_version = "v1.25.0-eksbuild.1"
+      service_account_role_arn = module.irsa_observer_ebs_csi_plugin.iam_role_arn
       configuration_values = file("${path.module}/eks-addon-configs/ebs-csi.json")
     }
     adot = {
@@ -314,6 +288,20 @@ module "eks_observer" {
       ]
     }
   ]
+}
+
+module "irsa_observer_ebs_csi_plugin" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name             = format("%s-irsa-observer-ebs-csi-plugin", local.name)
+  attach_ebs_csi_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa", "kube-system:ebs-csi-node-sa"]
+    }
+  }
 }
 
 ## EKS Observer / Karpenter
@@ -433,7 +421,7 @@ module "irsa_observer_load_balancer_controller" {
   oidc_providers = {
     main = {
       provider_arn               = module.eks_observer.oidc_provider_arn
-      namespace_service_accounts = ["kube-system:aws-load-balancer-controller"]
+      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa", "kube-system:ebs-csi-node-sa"]
     }
   }
 }
@@ -471,19 +459,25 @@ resource "helm_release" "observer_aws_load_balancer_controller" {
 }
 
 ## EKS Observer / Loki
-#resource "helm_release" "loki" {
-#  namespace        = "monitoring"
-#  create_namespace = true
+resource "helm_release" "observer_loki" {
+  provider = helm.observer  
 
-#  name       = "loki"
-#  chart      = "loki"
-#  repository = "https://grafana.github.io/helm-charts"
-#  version    = "v5.38.0"
+  namespace        = "monitoring"
+  create_namespace = true
+
+  name       = "loki"
+  chart      = "loki"
+  repository = "https://grafana.github.io/helm-charts"
+  version    = "v5.38.0"
  
-#  values = [
-#    file("${path.module}/helm-values/loki.yaml")
-#  ]
-#}
+  values = [
+    file("${path.module}/helm-values/loki.yaml")
+  ]
+
+  depends_on = [
+    helm_release.observer_karpenter
+  ]
+}
 
 ## EKS Observer / Tempo
 resource "helm_release" "observer_tempo" {
@@ -558,6 +552,7 @@ module "eks_workload" {
     }
     aws-ebs-csi-driver = {
       addon_version = "v1.25.0-eksbuild.1"
+      service_account_role_arn = module.irsa_workload_ebs_csi_plugin.iam_role_arn
       configuration_values = file("${path.module}/eks-addon-configs/ebs-csi.json")
     }
     adot = {
@@ -601,6 +596,20 @@ module "eks_workload" {
       ]
     }
   ]
+}
+
+module "irsa_workload_ebs_csi_plugin" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name             = format("%s-irsa-worklaod-ebs-csi-plugin", local.name)
+  attach_ebs_csi_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_workload.oidc_provider_arn
+      namespace_service_accounts = ["kube-system:aws-load-balancer-controller"]
+    }
+  }
 }
 
 ## EKS Workload / Karpenter
