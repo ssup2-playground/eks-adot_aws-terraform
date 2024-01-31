@@ -550,11 +550,6 @@ module "eks_workload" {
     kube-proxy = {
       addon_version = "v1.28.1-eksbuild.1"
     }
-    aws-ebs-csi-driver = {
-      addon_version = "v1.25.0-eksbuild.1"
-      service_account_role_arn = module.irsa_workload_ebs_csi_plugin.iam_role_arn
-      configuration_values = file("${path.module}/eks-addon-configs/ebs-csi.json")
-    }
     adot = {
       addon_version = "v0.90.0-eksbuild.1"
       configuration_values = file("${path.module}/eks-addon-configs/adot.json")
@@ -596,20 +591,6 @@ module "eks_workload" {
       ]
     }
   ]
-}
-
-module "irsa_workload_ebs_csi_plugin" {
-  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-
-  role_name             = format("%s-irsa-worklaod-ebs-csi-plugin", local.name)
-  attach_ebs_csi_policy = true
-
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks_workload.oidc_provider_arn
-      namespace_service_accounts = ["kube-system:aws-load-balancer-controller"]
-    }
-  }
 }
 
 ## EKS Workload / Karpenter

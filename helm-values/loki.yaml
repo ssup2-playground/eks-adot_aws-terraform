@@ -21,28 +21,15 @@ monitoring:
     enabled: false
 
 write:
-  replicas: 1
-
-  nodeSelector:
-    type: "service"
-
-  topologySpreadConstraints:
-  - maxSkew: 1
-    topologyKey: "topology.kubernetes.io/zone"
-    whenUnsatisfiable: "DoNotSchedule"
+  replicas: 0
 
 read:
-  replicas: 1
-
-  nodeSelector:
-    type: "service"
-
-  topologySpreadConstraints:
-  - maxSkew: 1
-    topologyKey: "topology.kubernetes.io/zone"
-    whenUnsatisfiable: "DoNotSchedule"
+  replicas: 0
 
 backend:
+  replicas: 0
+
+singleBinary:
   replicas: 1
 
   nodeSelector:
@@ -52,4 +39,3 @@ backend:
   - maxSkew: 1
     topologyKey: "topology.kubernetes.io/zone"
     whenUnsatisfiable: "DoNotSchedule"
-
