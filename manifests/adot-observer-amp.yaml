@@ -5,7 +5,7 @@ metadata:
   namespace: monitoring
   name: adot-collector-amp
   annotations:
-    eks.amazonaws.com/role-arn: "arn:aws:iam::727618787612:role/ts-eks-adot-irsa-observer-adot-collector-amp"
+    eks.amazonaws.com/role-arn: ${amp_role_arn}
 
 ---
 kind: ClusterRole
@@ -163,8 +163,7 @@ spec:
 
     exporters:
       prometheusremotewrite:
-        # replace this with your endpoint
-        endpoint: "https://aps-workspaces.ap-northeast-2.amazonaws.com/workspaces/ws-a1ed9c7b-90c1-4f64-8556-84af2a5a3dd9/api/v1/remote_write"
+        endpoint: ${amp_remote_write_endpoint}
         auth:
           authenticator: sigv4auth
 

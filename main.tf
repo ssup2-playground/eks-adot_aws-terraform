@@ -1033,3 +1033,24 @@ module "irsa_observer_adot_collector_amp" {
     module.eks_observer
   ]
 }
+
+data "kubectl_file_documents" "observer_adot_amp" {
+  content = templatefile("${path.module}/manifests/adot-observer-amp.yaml",
+    {
+      region                    = local.region
+      amp_role_arn              = module.irsa_observer_adot_collector_amp.iam_role_arn
+      amp_remote_write_endpoint = format("https://aps-workspaces.%s.amazonaws.com/workspaces/%s/api/v1/remote_write", local.region, module.prometheus.workspace_id)
+    }
+  )
+}
+
+resource "kubectl_manifest" "observer_adot_amp" {
+  provider = kubectl.observer
+
+  for_each = data.kubectl_file_documents.observer_adot_amp.manifests
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
