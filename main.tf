@@ -158,7 +158,6 @@ module "vpc_observer" {
 
   private_subnet_tags = {
     "kubernetes.io/role/internal-elb" = 1                               # for AWS Load Balancer Controller
-    "karpenter.sh/discovery"          = format("%s-ob-eks", local.name) # for Karpenter
   }
 }
 
@@ -186,7 +185,6 @@ module "vpc_workload" {
 
   private_subnet_tags = {
     "kubernetes.io/role/internal-elb" = 1                                 # for AWS Load Balancer Controller
-    "karpenter.sh/discovery"          = format("%s-work-eks", local.name) # for Karpenter
   }
 }
 
@@ -230,11 +228,24 @@ module "eks_observer" {
 
   manage_aws_auth_configmap = true
 
+  ## Managed Nodegroups
+  eks_managed_node_groups = {
+    workshop = {
+      min_size     = 4
+      max_size     = 4
+      desired_size = 4
+
+      instance_types = ["m5.xlarge"]
+      iam_role_additional_policies = {
+        AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
+    }
+  }
+
   ## Addons
   cluster_addons = {
     coredns = {
       addon_version = "v1.10.1-eksbuild.5"
-      configuration_values = file("${path.module}/eks-addon-configs/coredns.json")
     }
     vpc-cni = {
       addon_version = "v1.14.1-eksbuild.1"
@@ -245,27 +256,13 @@ module "eks_observer" {
     aws-ebs-csi-driver = {
       addon_version = "v1.25.0-eksbuild.1"
       service_account_role_arn = module.irsa_observer_ebs_csi_plugin.iam_role_arn
-      configuration_values = file("${path.module}/eks-addon-configs/ebs-csi.json")
     }
     adot = {
       addon_version = "v0.90.0-eksbuild.1"
-      configuration_values = file("${path.module}/eks-addon-configs/adot.json")
-    }
-  }
-
-  ## Fargate
-  fargate_profiles = {
-    karpenter = {
-      selectors = [
-        { namespace = "karpenter" }
-      ]
     }
   }
 
   ## Node Security Group
-  node_security_group_tags = {
-    "karpenter.sh/discovery" = format("%s-ob-eks", local.name) # for Karpenter
-  }
   node_security_group_additional_rules = {
     ingress_self_all = {
       description = "Node to node all ports/protocols"
@@ -276,18 +273,6 @@ module "eks_observer" {
       self        = true
     }
   }
-
-  aws_auth_roles = [
-    {
-      ## for Karpenter
-      rolearn  = module.karpenter_observer.role_arn
-      username = "system:node:{{EC2PrivateDNSName}}"
-      groups = [
-        "system:bootstrappers",
-        "system:nodes",
-      ]
-    }
-  ]
 }
 
 module "irsa_observer_ebs_csi_plugin" {
@@ -302,88 +287,6 @@ module "irsa_observer_ebs_csi_plugin" {
       namespace_service_accounts = ["kube-system:ebs-csi-controller-sa", "kube-system:ebs-csi-node-sa"]
     }
   }
-}
-
-## EKS Observer / Karpenter
-module "karpenter_observer" {
-  source = "terraform-aws-modules/eks/aws//modules/karpenter"
-
-  cluster_name           = module.eks_observer.cluster_name
-  irsa_oidc_provider_arn = module.eks_observer.oidc_provider_arn
-
-	enable_karpenter_instance_profile_creation = true
-
-  iam_role_additional_policies = {
-    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-  }
-}
-
-resource "helm_release" "observer_karpenter" {
-  provider = helm.observer  
-
-  namespace        = "karpenter"
-  create_namespace = true
-
-  name       = "karpenter"
-  chart      = "karpenter"
-  repository = "oci://public.ecr.aws/karpenter"
-  version    = "v0.32.5"
-
-  set {
-    name  = "settings.aws.clusterName"
-    value = module.eks_observer.cluster_name
-  }
-  set {
-    name  = "settings.aws.clusterEndpoint"
-    value = module.eks_observer.cluster_endpoint
-  }
-  set {
-    name  = "settings.aws.interruptionQueueName"
-    value = module.karpenter_observer.queue_name
-  }
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = module.karpenter_observer.irsa_arn
-  }
-
-  depends_on = [
-    module.karpenter_observer
-  ]
-}
-
-resource "kubectl_manifest" "observer_karpenter_nodepool_core" {
-  provider = kubectl.observer
-
-  yaml_body = file("${path.module}/manifests/karpenter-nodepool-core.yaml")
-
-  depends_on = [
-    helm_release.observer_karpenter
-  ]
-}
-
-resource "kubectl_manifest" "observer_karpenter_nodepool_default" {
-  provider = kubectl.observer
-
-  yaml_body = file("${path.module}/manifests/karpenter-nodepool-default.yaml")
-
-  depends_on = [
-    helm_release.observer_karpenter
-  ]
-}
-
-resource "kubectl_manifest" "observer_karpenter_ec2nodeclass_default" {
-  provider = kubectl.observer
-
-  yaml_body = templatefile("${path.module}/manifests/karpenter-nodeclass-default.yaml", 
-    { 
-      cluster_name = module.eks_observer.cluster_name
-      ec2_role_name = module.karpenter_observer.role_name
-    }
-  )
-
-  depends_on = [
-    helm_release.observer_karpenter
-  ]
 }
 
 ## EKS Observer / Cert Manager
@@ -405,10 +308,6 @@ resource "helm_release" "observer_cert_manager" {
     name  = "clusterName"
     value = module.eks_observer.cluster_name
   }
-
-  depends_on = [
-    helm_release.observer_karpenter
-  ]
 }
 
 ## EKS Observer / Load Balancer Controller
@@ -454,7 +353,6 @@ resource "helm_release" "observer_aws_load_balancer_controller" {
 
   depends_on = [
     module.irsa_observer_load_balancer_controller,
-		helm_release.observer_karpenter
   ]
 }
 
@@ -473,10 +371,6 @@ resource "helm_release" "observer_loki" {
   values = [
     file("${path.module}/helm-values/loki.yaml")
   ]
-
-  depends_on = [
-    helm_release.observer_karpenter
-  ]
 }
 
 ## EKS Observer / Tempo
@@ -494,10 +388,6 @@ resource "helm_release" "observer_tempo" {
   values = [
     file("${path.module}/helm-values/tempo.yaml")
   ]
-
-  depends_on = [
-    helm_release.observer_karpenter
-  ]
 }
 
 ## EKS Observer / Grafana 
@@ -514,10 +404,6 @@ resource "helm_release" "observer_grafana" {
  
   values = [
     file("${path.module}/helm-values/grafana.yaml")
-  ]
-
-  depends_on = [
-    helm_release.observer_karpenter
   ]
 }
 
@@ -538,11 +424,24 @@ module "eks_workload" {
 
   manage_aws_auth_configmap = true
 
+  ## Managed Nodegroups
+  eks_managed_node_groups = {
+    workshop = {
+      min_size     = 4
+      max_size     = 4
+      desired_size = 4
+
+      instance_types = ["m5.xlarge"]
+      iam_role_additional_policies = {
+        AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
+      }
+    }
+  }
+
   ## Addons
   cluster_addons = {
     coredns = {
       addon_version = "v1.10.1-eksbuild.5"
-      configuration_values = file("${path.module}/eks-addon-configs/coredns.json")
     }
     vpc-cni = {
       addon_version = "v1.14.1-eksbuild.1"
@@ -552,23 +451,10 @@ module "eks_workload" {
     }
     adot = {
       addon_version = "v0.90.0-eksbuild.1"
-      configuration_values = file("${path.module}/eks-addon-configs/adot.json")
-    }
-  }
-
-  ## Fargate
-  fargate_profiles = {
-    karpenter = {
-      selectors = [
-        { namespace = "karpenter" }
-      ]
     }
   }
 
   ## Node Security Group
-  node_security_group_tags = {
-    "karpenter.sh/discovery" = format("%s-work-eks", local.name) # for Karpenter
-  }
   node_security_group_additional_rules = {
     ingress_self_all = {
       description = "Node to node all ports/protocols"
@@ -579,100 +465,6 @@ module "eks_workload" {
       self        = true
     }
   }
-
-  aws_auth_roles = [
-    {
-      ## for Karpenter
-      rolearn  = module.karpenter_workload.role_arn
-      username = "system:node:{{EC2PrivateDNSName}}"
-      groups = [
-        "system:bootstrappers",
-        "system:nodes",
-      ]
-    }
-  ]
-}
-
-## EKS Workload / Karpenter
-module "karpenter_workload" {
-  source = "terraform-aws-modules/eks/aws//modules/karpenter"
-
-  cluster_name           = module.eks_workload.cluster_name
-  irsa_oidc_provider_arn = module.eks_workload.oidc_provider_arn
-
-	enable_karpenter_instance_profile_creation = true
-
-  iam_role_additional_policies = {
-    AmazonSSMManagedInstanceCore = "arn:aws:iam::aws:policy/AmazonSSMManagedInstanceCore"
-  }
-}
-
-resource "helm_release" "workload_karpenter" {
-  provider = helm.workload 
-
-  namespace        = "karpenter"
-  create_namespace = true
-
-  name       = "karpenter"
-  chart      = "karpenter"
-  repository = "oci://public.ecr.aws/karpenter"
-  version    = "v0.32.5"
-
-  set {
-    name  = "settings.aws.clusterName"
-    value = module.eks_workload.cluster_name
-  }
-  set {
-    name  = "settings.aws.clusterEndpoint"
-    value = module.eks_workload.cluster_endpoint
-  }
-  set {
-    name  = "settings.aws.interruptionQueueName"
-    value = module.karpenter_workload.queue_name
-  }
-  set {
-    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
-    value = module.karpenter_workload.irsa_arn
-  }
-
-  depends_on = [
-    module.karpenter_workload
-  ]
-}
-
-resource "kubectl_manifest" "workload_karpenter_nodepool_core" {
-  provider = kubectl.workload
-
-  yaml_body = file("${path.module}/manifests/karpenter-nodepool-core.yaml")
-
-  depends_on = [
-    helm_release.workload_karpenter
-  ]
-}
-
-resource "kubectl_manifest" "workload_karpenter_nodepool_default" {
-  provider = kubectl.workload
-
-  yaml_body = file("${path.module}/manifests/karpenter-nodepool-default.yaml")
-
-  depends_on = [
-    helm_release.workload_karpenter
-  ]
-}
-
-resource "kubectl_manifest" "workload_karpenter_ec2nodeclass_default" {
-  provider = kubectl.workload
-
-  yaml_body = templatefile("${path.module}/manifests/karpenter-nodeclass-default.yaml", 
-    { 
-      cluster_name = module.eks_workload.cluster_name
-      ec2_role_name = module.karpenter_workload.role_name
-    }
-  )
-
-  depends_on = [
-    helm_release.workload_karpenter
-  ]
 }
 
 ## EKS Workload / Cert Manager
@@ -694,10 +486,6 @@ resource "helm_release" "workload_cert_manager" {
     name  = "clusterName"
     value = module.eks_workload.cluster_name
   }
-
-  depends_on = [
-    helm_release.workload_karpenter
-  ]
 }
 
 ## EKS Workload / Load Balancer Controller
@@ -743,7 +531,6 @@ resource "helm_release" "workload_aws_load_balancer_controller" {
 
   depends_on = [
     module.irsa_workload_load_balancer_controller,
-		helm_release.workload_karpenter
   ]
 }
 
