@@ -3,7 +3,7 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   namespace: monitoring
-  name: adot-collector-ci
+  name: adot-collector-onebyone-ci
   annotations:
     eks.amazonaws.com/role-arn: ${ci_role_arn}
 
@@ -11,7 +11,7 @@ metadata:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: adot-collector-ci
+  name: adot-collector-onebyone-ci
 rules:
 - apiGroups: [""]
   resources: ["pods", "nodes", "endpoints"]
@@ -47,14 +47,14 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: adot-collector-ci
+  name: adot-collector-onebyone-ci
 subjects:
 - kind: ServiceAccount
   namespace: monitoring
-  name: adot-collector-ci
+  name: adot-collector-onebyone-ci
 roleRef:
   kind: ClusterRole
-  name: adot-collector-ci
+  name: adot-collector-onebyone-ci
   apiGroup: rbac.authorization.k8s.io
 
 ---
@@ -62,10 +62,10 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   namespace: monitoring
-  name: adot-collector-ci
+  name: adot-collector-onebyone-ci
 spec:
   mode: daemonset
-  serviceAccount: adot-collector-ci
+  serviceAccount: adot-collector-onebyone-ci
   securityContext:
     runAsUser: 0
     runAsGroup: 0

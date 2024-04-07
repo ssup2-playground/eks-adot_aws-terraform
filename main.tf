@@ -403,6 +403,22 @@ resource "helm_release" "observer_grafana" {
   ]
 }
 
+## EKS Observer / App Python
+data "kubectl_file_documents" "observer_app_python" {
+  content = file("${path.module}/manifests/app-python.yaml")
+}
+
+resource "kubectl_manifest" "observer_app_python" {
+  provider = kubectl.observer
+
+  for_each = data.kubectl_file_documents.observer_app_python.manifests
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
 ## EKS Workload
 module "eks_workload" {
   providers = {
@@ -716,17 +732,33 @@ resource "awscc_osis_pipeline" "trace" {
   ]
 }
 
-## ADOT Collector / CloudWatch Container Insight
-module "irsa_observer_adot_collector_ci" {
+## EKS Workload / App Python
+data "kubectl_file_documents" "workload_app_python" {
+  content = file("${path.module}/manifests/app-python.yaml")
+}
+
+resource "kubectl_manifest" "workload_app_python" {
+  provider = kubectl.workload
+
+  for_each = data.kubectl_file_documents.workload_app_python.manifests
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_workload
+  ]
+}
+
+## ADOT Collector / Observer / OneByOne / CloudWatch Container Insight
+module "irsa_observer_adot_collector_onebyone_ci" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
 
-  role_name                              = format("%s-irsa-observer-adot-collector-ci", local.name)
+  role_name                              = format("%s-irsa-observer-adot-collector-onebyone-ci", local.name)
   attach_cloudwatch_observability_policy = true
 
   oidc_providers = {
     main = {
       provider_arn               = module.eks_observer.oidc_provider_arn
-      namespace_service_accounts = ["monitoring:adot-collector-ci"]
+      namespace_service_accounts = ["monitoring:adot-collector-onebyone-ci"]
     }
   }
 
@@ -735,18 +767,18 @@ module "irsa_observer_adot_collector_ci" {
   ]
 }
 
-data "kubectl_file_documents" "observer_adot_ci" {
-  content = templatefile("${path.module}/manifests/adot-observer-ci.yaml",
+data "kubectl_file_documents" "observer_adot_onebyone_ci" {
+  content = templatefile("${path.module}/manifests/adot-observer-onebyone-ci.yaml",
     {
-      ci_role_arn = module.irsa_observer_adot_collector_ci.iam_role_arn
+      ci_role_arn = module.irsa_observer_adot_collector_onebyone_ci.iam_role_arn
     }
   )
 }
 
-resource "kubectl_manifest" "observer_adot_ci" {
+resource "kubectl_manifest" "observer_adot_onebyone_ci" {
   provider = kubectl.observer
 
-  for_each = data.kubectl_file_documents.observer_adot_ci.manifests
+  for_each = data.kubectl_file_documents.observer_adot_onebyone_ci.manifests
   yaml_body = each.value
 
   depends_on = [
@@ -754,17 +786,17 @@ resource "kubectl_manifest" "observer_adot_ci" {
   ]
 }
 
-## ADOT Collector / CloudWatch Logs
-module "irsa_observer_adot_collector_cl" {
+## ADOT Collector / Observer / OneByOne / CloudWatch Logs
+module "irsa_observer_adot_collector_onebyone_cl" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
 
-  role_name                              = format("%s-irsa-observer-adot-collector-cl", local.name)
+  role_name                              = format("%s-irsa-observer-adot-collector-onebyone-cl", local.name)
   attach_cloudwatch_observability_policy = true
 
   oidc_providers = {
     main = {
       provider_arn               = module.eks_observer.oidc_provider_arn
-      namespace_service_accounts = ["monitoring:adot-collector-cl"]
+      namespace_service_accounts = ["monitoring:adot-collector-onebyone-cl"]
     }
   }
 
@@ -773,21 +805,21 @@ module "irsa_observer_adot_collector_cl" {
   ]
 }
 
-data "kubectl_file_documents" "observer_adot_cl" {
-  content = templatefile("${path.module}/manifests/adot-observer-cl.yaml",
+data "kubectl_file_documents" "observer_adot_onebyone_cl" {
+  content = templatefile("${path.module}/manifests/adot-observer-onebyone-cl.yaml",
     {
       region         = local.region
       cluster_name   = module.eks_observer.cluster_name
-      cl_role_arn    = module.irsa_observer_adot_collector_cl.iam_role_arn
+      cl_role_arn    = module.irsa_observer_adot_collector_onebyone_cl.iam_role_arn
       log_group_name = aws_cloudwatch_log_group.onebyone.name
     }
   )
 }
 
-resource "kubectl_manifest" "observer_adot_cl" {
+resource "kubectl_manifest" "observer_adot_onebyone_cl" {
   provider = kubectl.observer
 
-  for_each = data.kubectl_file_documents.observer_adot_cl.manifests
+  for_each = data.kubectl_file_documents.observer_adot_onebyone_cl.manifests
   yaml_body = each.value
 
   depends_on = [
@@ -795,17 +827,17 @@ resource "kubectl_manifest" "observer_adot_cl" {
   ]
 }
 
-## ADOT Collector / AMP
-module "irsa_observer_adot_collector_amp" {
+## ADOT Collector / Observer / OneByOne / AMP
+module "irsa_observer_adot_collector_onebyone_amp" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
 
-  role_name                                       = format("%s-irsa-observer-adot-collector-amp", local.name)
+  role_name                                       = format("%s-irsa-observer-adot-collector-onebyone-amp", local.name)
   attach_amazon_managed_service_prometheus_policy = true
 
   oidc_providers = {
     main = {
       provider_arn               = module.eks_observer.oidc_provider_arn
-      namespace_service_accounts = ["monitoring:adot-collector-amp"]
+      namespace_service_accounts = ["monitoring:adot-collector-onebyone-amp"]
     }
   }
 
@@ -814,20 +846,20 @@ module "irsa_observer_adot_collector_amp" {
   ]
 }
 
-data "kubectl_file_documents" "observer_adot_amp" {
-  content = templatefile("${path.module}/manifests/adot-observer-amp.yaml",
+data "kubectl_file_documents" "observer_adot_onebyone_amp" {
+  content = templatefile("${path.module}/manifests/adot-observer-onebyone-amp.yaml",
     {
       region                    = local.region
-      amp_role_arn              = module.irsa_observer_adot_collector_amp.iam_role_arn
+      amp_role_arn              = module.irsa_observer_adot_collector_onebyone_amp.iam_role_arn
       amp_remote_write_endpoint = format("https://aps-workspaces.%s.amazonaws.com/workspaces/%s/api/v1/remote_write", local.region, module.prometheus.workspace_id)
     }
   )
 }
 
-resource "kubectl_manifest" "observer_adot_amp" {
+resource "kubectl_manifest" "observer_adot_onebyone_amp" {
   provider = kubectl.observer
 
-  for_each = data.kubectl_file_documents.observer_adot_amp.manifests
+  for_each = data.kubectl_file_documents.observer_adot_onebyone_amp.manifests
   yaml_body = each.value
 
   depends_on = [
@@ -835,19 +867,19 @@ resource "kubectl_manifest" "observer_adot_amp" {
   ]
 }
 
-## ADOT Collector / Tempo
-data "kubectl_file_documents" "observer_adot_tempo" {
-  content = templatefile("${path.module}/manifests/adot-observer-tempo.yaml",
+## ADOT Collector / Observer / OneByOne / Tempo
+data "kubectl_file_documents" "observer_adot_onebyone_tempo" {
+  content = templatefile("${path.module}/manifests/adot-observer-onebyone-tempo.yaml",
     {
       region = local.region
     }
   )
 }
 
-resource "kubectl_manifest" "observer_adot_tempo" {
+resource "kubectl_manifest" "observer_adot_onebyone_tempo" {
   provider = kubectl.observer
 
-  for_each = data.kubectl_file_documents.observer_adot_tempo.manifests
+  for_each = data.kubectl_file_documents.observer_adot_onebyone_tempo.manifests
   yaml_body = each.value
 
   depends_on = [

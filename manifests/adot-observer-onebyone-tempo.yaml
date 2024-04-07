@@ -3,18 +3,18 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   namespace: monitoring
-  name: adot-collector-tempo
+  name: adot-collector-onebyone-tempo
 
 ---
 apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   namespace: monitoring
-  name: adot-collector-tempo
+  name: adot-collector-onebyone-tempo
 spec:
   mode: deployment
   replicas: 1
-  serviceAccount: adot-collector-tempo
+  serviceAccount: adot-collector-onebyone-tempo
   resources:
     limits:
       cpu: 200m
@@ -50,3 +50,18 @@ spec:
           - otlp
           exporters:
           - otlp
+
+---
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  namespace: monitoring
+  name: adot-instrumentation-onebyone-tempo
+spec:
+  exporter:
+    endpoint: http://adot-collector-onebyone-traces-xray:4318
+  propagators:
+  - tracecontext
+  - baggage
+  sampler:
+    type: always_on
