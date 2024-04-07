@@ -320,7 +320,7 @@ module "irsa_observer_load_balancer_controller" {
   oidc_providers = {
     main = {
       provider_arn               = module.eks_observer.oidc_provider_arn
-      namespace_service_accounts = ["kube-system:ebs-csi-controller-sa", "kube-system:ebs-csi-node-sa"]
+      namespace_service_accounts = ["kube-system:aws-load-balancer-controller"]
     }
   }
 }
