@@ -27,14 +27,12 @@ spec:
     receivers:
       otlp:
         protocols:
-          grpc:
-            endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
     
     exporters:
       otlp:
-        endpoint: "http://tempo.monitoring.svc.cluster.local:4317"
+        endpoint: "http://tempo.monitoring.svc.cluster.local:4318"
         tls:
           insecure: true
    
@@ -59,7 +57,7 @@ metadata:
   name: adot-instrumentation-onebyone-tempo
 spec:
   exporter:
-    endpoint: http://adot-collector-onebyone-traces-xray:4318
+    endpoint: "http://adot-collector-onebyone-tempo-collector.monitoring.svc.cluster.local:4318"
   propagators:
   - tracecontext
   - baggage
