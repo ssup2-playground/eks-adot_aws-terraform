@@ -11,7 +11,7 @@ metadata:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: adot-collector-amp-role
+  name: adot-collector-amp
 rules:
 - apiGroups: [""]
   resources:
@@ -34,14 +34,14 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: adot-collector-amp-role-binding
+  name: adot-collector-amp
 subjects:
 - kind: ServiceAccount
   namespace: monitoring
   name: adot-collector-amp
 roleRef:
   kind: ClusterRole
-  name: adot-collector-amp-role
+  name: adot-collector-amp
   apiGroup: rbac.authorization.k8s.io
 
 ---
@@ -49,16 +49,16 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   namespace: monitoring
-  name: adot-amp
+  name: adot-collector-amp
 spec:
   mode: deployment
   serviceAccount: adot-collector-amp
   hostNetwork: false
-  replicas: 2
+  replicas: 1
   resources:
     limits:
-      cpu: "1"
-      memory: 2Gi
+      cpu: 200m
+      memory: 400Mi
     requests:
       cpu: 200m
       memory: 400Mi 
@@ -125,41 +125,99 @@ spec:
             scrape_interval: 30s
             scrape_timeout: 10s
           scrape_configs:
-          - job_name: 'kubernetes-apiservers'
-            scheme: https
+          - job_name: kubernetes-apiservers
+            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
             kubernetes_sd_configs:
             - role: endpoints
+            relabel_configs:
+            - action: keep
+              regex: default;kubernetes;https
+              source_labels:
+              - __meta_kubernetes_namespace
+              - __meta_kubernetes_service_name
+              - __meta_kubernetes_endpoint_port_name
+            scheme: https
             tls_config:
               ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
               insecure_skip_verify: true
+          - job_name: kubernetes-nodes
             bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
-            relabel_configs:
-            - source_labels: [__meta_kubernetes_service_name, __meta_kubernetes_endpoint_port_name]
-              action: keep
-              regex: kubernetes;https 
-          - job_name: 'kubernetes-nodes'
-            scheme: https
             kubernetes_sd_configs:
             - role: node
-            tls_config:
-              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
-              insecure_skip_verify: true
-            bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
             relabel_configs:
             - action: labelmap
               regex: __meta_kubernetes_node_label_(.+)
-          - job_name: 'kubernetes-cadvisor'
+            - replacement: kubernetes.default.svc:443
+              target_label: __address__
+            - regex: (.+)
+              replacement: /api/v1/nodes/$$1/proxy/metrics
+              source_labels:
+              - __meta_kubernetes_node_name
+              target_label: __metrics_path__
             scheme: https
-            metrics_path: /metrics/cadvisor
-            kubernetes_sd_configs:
-            - role: node
             tls_config:
               ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
               insecure_skip_verify: true
+          - job_name: kubernetes-nodes-cadvisor
             bearer_token_file: /var/run/secrets/kubernetes.io/serviceaccount/token
+            kubernetes_sd_configs:
+            - role: node
             relabel_configs:
             - action: labelmap
               regex: __meta_kubernetes_node_label_(.+)
+            - replacement: kubernetes.default.svc:443
+              target_label: __address__
+            - regex: (.+)
+              replacement: /api/v1/nodes/$$1/proxy/metrics/cadvisor
+              source_labels:
+              - __meta_kubernetes_node_name
+              target_label: __metrics_path__
+            scheme: https
+            tls_config:
+              ca_file: /var/run/secrets/kubernetes.io/serviceaccount/ca.crt
+              insecure_skip_verify: true
+          - job_name: kubernetes-service-endpoints
+            kubernetes_sd_configs:
+            - role: endpoints
+            relabel_configs:
+            - action: keep
+              regex: true
+              source_labels:
+              - __meta_kubernetes_service_annotation_prometheus_io_scrape
+            - action: replace
+              regex: (https?)
+              source_labels:
+              - __meta_kubernetes_service_annotation_prometheus_io_scheme
+              target_label: __scheme__
+            - action: replace
+              regex: (.+)
+              source_labels:
+              - __meta_kubernetes_service_annotation_prometheus_io_path
+              target_label: __metrics_path__
+            - action: replace
+              regex: ([^:]+)(?::\d+)?;(\d+)
+              replacement: $$1:$$2
+              source_labels:
+              - __address__
+              - __meta_kubernetes_service_annotation_prometheus_io_port
+              target_label: __address__
+            - action: labelmap
+              regex: __meta_kubernetes_service_annotation_prometheus_io_param_(.+)
+              replacement: __param_$$1
+            - action: labelmap
+              regex: __meta_kubernetes_service_label_(.+)
+            - action: replace
+              source_labels:
+              - __meta_kubernetes_namespace
+              target_label: kubernetes_namespace
+            - action: replace
+              source_labels:
+              - __meta_kubernetes_service_name
+              target_label: kubernetes_name
+            - action: replace
+              source_labels:
+              - __meta_kubernetes_pod_node_name
+              target_label: kubernetes_node
 
     exporters:
       prometheusremotewrite:
@@ -170,10 +228,13 @@ spec:
     extensions:
       health_check:
       sigv4auth:
-        region: "ap-northeast-2"
+        region: ${region}
 
     service:
       extensions: [health_check, sigv4auth]
+      telemetry:
+        logs:
+          level: "DEBUG"
       pipelines:
         metrics:
           receivers: [prometheus]

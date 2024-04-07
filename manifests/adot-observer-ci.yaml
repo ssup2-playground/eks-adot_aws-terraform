@@ -11,7 +11,7 @@ metadata:
 kind: ClusterRole
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: adot-collector-ci-role
+  name: adot-collector-ci
 rules:
 - apiGroups: [""]
   resources: ["pods", "nodes", "endpoints"]
@@ -47,14 +47,14 @@ rules:
 kind: ClusterRoleBinding
 apiVersion: rbac.authorization.k8s.io/v1
 metadata:
-  name: adot-collector-ci-role-binding
+  name: adot-collector-ci
 subjects:
 - kind: ServiceAccount
   namespace: monitoring
   name: adot-collector-ci
 roleRef:
   kind: ClusterRole
-  name: adot-collector-ci-role
+  name: adot-collector-ci
   apiGroup: rbac.authorization.k8s.io
 
 ---
@@ -62,7 +62,7 @@ apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   namespace: monitoring
-  name: adot-ci
+  name: adot-collector-ci
 spec:
   mode: daemonset
   serviceAccount: adot-collector-ci
@@ -73,10 +73,10 @@ spec:
   resources:
     limits:
       cpu: 200m
-      memory: 200Mi
+      memory: 400Mi
     requests:
       cpu: 200m
-      memory: 200Mi 
+      memory: 400Mi 
   env:
   - name: K8S_NODE_NAME
     valueFrom:
@@ -156,64 +156,64 @@ spec:
           # node metrics
           - dimensions: [[NodeName, InstanceId, ClusterName]]
             metric_name_selectors:
-              - node_cpu_utilization
-              - node_memory_utilization
-              - node_network_total_bytes
-              - node_cpu_reserved_capacity
-              - node_memory_reserved_capacity
-              - node_number_of_running_pods
-              - node_number_of_running_containers
+            - node_cpu_utilization
+            - node_memory_utilization
+            - node_network_total_bytes
+            - node_cpu_reserved_capacity
+            - node_memory_reserved_capacity
+            - node_number_of_running_pods
+            - node_number_of_running_containers
           - dimensions: [[ClusterName]]
             metric_name_selectors:
-              - node_cpu_utilization
-              - node_memory_utilization
-              - node_network_total_bytes
-              - node_cpu_reserved_capacity
-              - node_memory_reserved_capacity
-              - node_number_of_running_pods
-              - node_number_of_running_containers
-              - node_cpu_usage_total
-              - node_cpu_limit
-              - node_memory_working_set
-              - node_memory_limit
+            - node_cpu_utilization
+            - node_memory_utilization
+            - node_network_total_bytes
+            - node_cpu_reserved_capacity
+            - node_memory_reserved_capacity
+            - node_number_of_running_pods
+            - node_number_of_running_containers
+            - node_cpu_usage_total
+            - node_cpu_limit
+            - node_memory_working_set
+            - node_memory_limit
 
           # pod metrics
           - dimensions: [[PodName, Namespace, ClusterName], [Service, Namespace, ClusterName], [Namespace, ClusterName], [ClusterName]]
             metric_name_selectors:
-              - pod_cpu_utilization
-              - pod_memory_utilization
-              - pod_network_rx_bytes
-              - pod_network_tx_bytes
-              - pod_cpu_utilization_over_pod_limit
-              - pod_memory_utilization_over_pod_limit
+            - pod_cpu_utilization
+            - pod_memory_utilization
+            - pod_network_rx_bytes
+            - pod_network_tx_bytes
+            - pod_cpu_utilization_over_pod_limit
+            - pod_memory_utilization_over_pod_limit
           - dimensions: [[PodName, Namespace, ClusterName], [ClusterName]]
             metric_name_selectors:
-              - pod_cpu_reserved_capacity
-              - pod_memory_reserved_capacity
+            - pod_cpu_reserved_capacity
+            - pod_memory_reserved_capacity
           - dimensions: [[PodName, Namespace, ClusterName]]
             metric_name_selectors:
-              - pod_number_of_container_restarts
+            - pod_number_of_container_restarts
 
           # cluster metrics
           - dimensions: [[ClusterName]]
             metric_name_selectors:
-              - cluster_node_count
-              - cluster_failed_node_count
+            - cluster_node_count
+            - cluster_failed_node_count
 
           # service metrics
           - dimensions: [[Service, Namespace, ClusterName], [ClusterName]]
             metric_name_selectors:
-              - service_number_of_running_pods
+            - service_number_of_running_pods
 
           # node fs metrics
           - dimensions: [[NodeName, InstanceId, ClusterName], [ClusterName]]
             metric_name_selectors:
-              - node_filesystem_utilization
+            - node_filesystem_utilization
 
           # namespace metrics
           - dimensions: [[Namespace, ClusterName], [ClusterName]]
             metric_name_selectors:
-              - namespace_number_of_running_pods
+            - namespace_number_of_running_pods
 
     service:
       extensions: [health_check]
@@ -222,4 +222,3 @@ spec:
           receivers: [awscontainerinsightreceiver]
           processors: [batch/metrics]
           exporters: [awsemf]
-

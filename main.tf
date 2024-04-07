@@ -777,6 +777,7 @@ data "kubectl_file_documents" "observer_adot_cl" {
   content = templatefile("${path.module}/manifests/adot-observer-cl.yaml",
     {
       region         = local.region
+      cluster_name   = module.eks_observer.cluster_name
       cl_role_arn    = module.irsa_observer_adot_collector_cl.iam_role_arn
       log_group_name = aws_cloudwatch_log_group.onebyone.name
     }
@@ -827,6 +828,26 @@ resource "kubectl_manifest" "observer_adot_amp" {
   provider = kubectl.observer
 
   for_each = data.kubectl_file_documents.observer_adot_amp.manifests
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## ADOT Collector / Tempo
+data "kubectl_file_documents" "observer_adot_tempo" {
+  content = templatefile("${path.module}/manifests/adot-observer-tempo.yaml",
+    {
+      region = local.region
+    }
+  )
+}
+
+resource "kubectl_manifest" "observer_adot_tempo" {
+  provider = kubectl.observer
+
+  for_each = data.kubectl_file_documents.observer_adot_tempo.manifests
   yaml_body = each.value
 
   depends_on = [
