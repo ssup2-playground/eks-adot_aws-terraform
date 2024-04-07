@@ -333,10 +333,6 @@ resource "helm_release" "observer_aws_load_balancer_controller" {
   chart      = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   version    = "v1.6.2"
- 
-  values = [
-    file("${path.module}/helm-values/aws-load-balancer-controller.yaml")
-  ]
 
   set {
     name  = "clusterName"
@@ -511,10 +507,6 @@ resource "helm_release" "workload_aws_load_balancer_controller" {
   chart      = "aws-load-balancer-controller"
   repository = "https://aws.github.io/eks-charts"
   version    = "v1.6.2"
- 
-  values = [
-    file("${path.module}/helm-values/aws-load-balancer-controller.yaml")
-  ]
 
   set {
     name  = "clusterName"

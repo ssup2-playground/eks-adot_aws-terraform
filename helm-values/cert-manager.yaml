@@ -1,51 +1,9 @@
 installCRDs: "true"
 
-nodeSelector:
-  type: "core"
-
-tolerations:
-- key: "type"
-  operator: "Equal"
-  value: "core"
-  effect: "NoSchedule"
-
-topologySpreadConstraints:
-- maxSkew: 1
-  topologyKey: "topology.kubernetes.io/zone"
-  whenUnsatisfiable: "DoNotSchedule"
-
-replicaCount: 2
+replicaCount: 1
 
 webhook:
-  nodeSelector:
-    type: "core"
-
-  tolerations:
-  - key: "type"
-    operator: "Equal"
-    value: "core"
-    effect: "NoSchedule"
-
-  topologySpreadConstraints:
-  - maxSkew: 1
-    topologyKey: "topology.kubernetes.io/zone"
-    whenUnsatisfiable: "DoNotSchedule"
-
-  replicaCount: 2
+  replicaCount: 1
 
 cainjector:
-  nodeSelector:
-    type: "core"
-
-  tolerations:
-  - key: "type"
-    operator: "Equal"
-    value: "core"
-    effect: "NoSchedule"
-
-  topologySpreadConstraints:
-  - maxSkew: 1
-    topologyKey: "topology.kubernetes.io/zone"
-    whenUnsatisfiable: "DoNotSchedule"
-
-  replicaCount: 2
+  replicaCount: 1

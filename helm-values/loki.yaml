@@ -1,5 +1,21 @@
 loki:
-  type: "filesystem" 
+  commonConfig:
+    replication_factor: 1
+  storage:
+    type: "filesystem"
+  auth_enabled: false
+
+singleBinary:
+  replicas: 1
+
+write:
+  replicas: 0
+
+read:
+  replicas: 0
+
+backend:
+  replicas: 0
 
 test:
   enabled: false
@@ -19,23 +35,3 @@ monitoring:
 
   lokiCanary:
     enabled: false
-
-write:
-  replicas: 0
-
-read:
-  replicas: 0
-
-backend:
-  replicas: 0
-
-singleBinary:
-  replicas: 1
-
-  nodeSelector:
-    type: "service"
-
-  topologySpreadConstraints:
-  - maxSkew: 1
-    topologyKey: "topology.kubernetes.io/zone"
-    whenUnsatisfiable: "DoNotSchedule"

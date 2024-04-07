@@ -1,11 +1,3 @@
-nodeSelector:
-  type: "service"
-
-topologySpreadConstraints:
-- maxSkew: 1
-  topologyKey: "topology.kubernetes.io/zone"
-  whenUnsatisfiable: "DoNotSchedule"
-
 replicas: 1
 
 service:
