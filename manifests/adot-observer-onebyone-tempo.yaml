@@ -40,20 +40,17 @@ spec:
       health_check:
 
     service:
-      extensions:
-      - health_check
+      extensions: [health_check]
       pipelines:
         traces:
-          receivers:
-          - otlp
-          exporters:
-          - otlp
+          receivers: [otlp]
+          exporters: [otlp]
 
 ---
 apiVersion: opentelemetry.io/v1alpha1
 kind: Instrumentation
 metadata:
-  namespace: monitoring
+  namespace: app
   name: adot-instrumentation-onebyone-tempo
 spec:
   exporter:
@@ -63,3 +60,4 @@ spec:
   - baggage
   sampler:
     type: always_on
+
