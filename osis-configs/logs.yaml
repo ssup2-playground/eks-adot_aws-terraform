@@ -1,8 +1,9 @@
+# ref : https://github.com/aws-samples/observability-with-amazon-opensearch/blob/main/cf-templates/osi.yaml
 version: "2"
 otel-logs-pipeline:
   source:
     otel_logs_source:
-      path: "/logs/onebyone"
+      path: "/v1/logs"
   processor:
   - parse_json:
       source: "body"
@@ -19,7 +20,7 @@ otel-logs-pipeline:
       destination: "@timestamp"
   sink:
   - opensearch:
-      index: "logs_onebyone"
+      index: "ob-eks-logs-%%{yyyy.MM.dd}"
       hosts: ["https://${opensearch_endpoint}"]
       aws:
         sts_role_arn: "${sts_role_arn}"

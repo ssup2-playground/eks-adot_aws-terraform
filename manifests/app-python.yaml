@@ -22,9 +22,24 @@ spec:
     spec:
       containers:
       - name: app-python
-        image: ghcr.io/ssup2-playground/eks-adot-app-python:0.1
+        image: ghcr.io/ssup2-playground/eks-adot-app-python:0.2
         ports:
         - containerPort: 80
+        livenessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+          periodSeconds: 60
+        readinessProbe:
+          httpGet:
+            path: /healthz
+            port: 80
+          periodSeconds: 60
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 0%
+      maxUnavailable: 100%
 
 ---
 apiVersion: v1

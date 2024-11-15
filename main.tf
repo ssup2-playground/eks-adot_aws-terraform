@@ -117,20 +117,163 @@ data "aws_ecrpublic_authorization_token" "token" {
   provider = aws.ecr
 }
 
-## CloudWatch Log Group
-resource "aws_cloudwatch_log_group" "onebyone" {
-  name = format("%s-onebyone", local.name)
-}
-
-resource "aws_cloudwatch_log_group" "atonce" {
-  name = format("%s-atonce", local.name)
-}
-
 ## AMP
 module "prometheus" {
   source = "terraform-aws-modules/managed-service-prometheus/aws"
 
-  workspace_alias = format("%s-amp-onebyone", local.name)
+  workspace_alias = format("%s-amp", local.name)
+}
+
+## OpenSearch
+resource "aws_opensearch_domain" "opensearch" {
+  domain_name    = format("%s-opensearch", local.name)
+  engine_version = "OpenSearch_2.11"
+
+  cluster_config {
+    instance_type = "m5.xlarge.search"
+  }
+
+  advanced_security_options {
+	  enabled                        = true
+    internal_user_database_enabled = true
+    master_user_options {
+      master_user_name     = "admin"
+      master_user_password = "Admin123!"
+    }
+  }
+
+  encrypt_at_rest {
+    enabled = true
+  }
+
+  domain_endpoint_options {
+    enforce_https       = true
+    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
+  }
+
+  node_to_node_encryption {
+    enabled = true
+  }
+
+  ebs_options {
+    ebs_enabled = true
+    volume_size = 20
+  }
+}
+
+data "aws_iam_policy_document" "opensearch_policy" {
+  statement {
+    effect = "Allow"
+
+    principals {
+      type        = "AWS"
+      identifiers = ["*"]
+    }
+
+    actions   = ["es:*"]
+    resources = ["${aws_opensearch_domain.opensearch.arn}/*"]
+
+    condition {
+		  test     = "IpAddress"
+      variable = "aws:SourceIp"
+      values   = ["127.0.0.1/32"]
+    }
+  }
+}
+
+resource "aws_opensearch_domain_policy" "opensearch_access_policy" {
+  domain_name     = aws_opensearch_domain.opensearch.domain_name
+  access_policies = data.aws_iam_policy_document.opensearch_policy.json
+}
+
+## OpenSearch / Injest
+resource "aws_iam_role" "opensearch_injest" {
+  name = format("%s-opensearch-injest", local.name)
+
+  assume_role_policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = "sts:AssumeRole"
+        Principal = {
+          Service = "osis-pipelines.amazonaws.com"
+        }
+      },
+    ]
+  })
+
+  inline_policy {
+    name = "OpenSearchInjest"
+
+    policy = jsonencode({
+      Version = "2012-10-17"
+      Statement = [
+        {
+          Effect   = "Allow"
+          Action   = ["es:DescribeDomain", "es:ESHttp*"]
+          Resource = "*"
+        },
+      ]
+    })
+  }
+}
+
+resource "awscc_osis_pipeline" "metrics" {
+  pipeline_name = format("%s-metrics", local.name)
+  min_units     = 3
+  max_units     = 3
+
+  pipeline_configuration_body = templatefile("${path.module}/osis-configs/metrics.yaml",
+    {
+      region = local.region,
+      opensearch_endpoint = aws_opensearch_domain.opensearch.endpoint,
+      sts_role_arn = aws_iam_role.opensearch_injest.arn
+    }
+  )
+
+  depends_on = [
+    aws_opensearch_domain.opensearch,
+    aws_iam_role.opensearch_injest
+  ]
+}
+
+resource "awscc_osis_pipeline" "logs" {
+  pipeline_name = format("%s-logs", local.name)
+  min_units     = 3
+  max_units     = 3
+
+  pipeline_configuration_body = templatefile("${path.module}/osis-configs/logs.yaml",
+    {
+      region = local.region,
+      opensearch_endpoint = aws_opensearch_domain.opensearch.endpoint,
+      sts_role_arn = aws_iam_role.opensearch_injest.arn
+    }
+  )
+
+  depends_on = [
+    aws_opensearch_domain.opensearch,
+    aws_iam_role.opensearch_injest
+  ]
+}
+
+resource "awscc_osis_pipeline" "trace" {
+  pipeline_name = format("%s-trace", local.name)
+  min_units     = 3
+  max_units     = 3
+
+  pipeline_configuration_body = templatefile("${path.module}/osis-configs/traces.yaml",
+    {
+      region = local.region,
+      opensearch_endpoint = aws_opensearch_domain.opensearch.endpoint,
+      sts_role_arn = aws_iam_role.opensearch_injest.arn
+    }
+  )
+
+  depends_on = [
+    aws_opensearch_domain.opensearch,
+    aws_iam_role.opensearch_injest
+  ]
 }
 
 ## VPC
@@ -157,7 +300,7 @@ module "vpc_observer" {
   }
 
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb" = 1                               # for AWS Load Balancer Controller
+    "kubernetes.io/role/internal-elb" = 1 # for AWS Load Balancer Controller
   }
 }
 
@@ -184,7 +327,7 @@ module "vpc_workload" {
   }
 
   private_subnet_tags = {
-    "kubernetes.io/role/internal-elb" = 1                                 # for AWS Load Balancer Controller
+    "kubernetes.io/role/internal-elb" = 1 # for AWS Load Balancer Controller
   }
 }
 
@@ -193,15 +336,12 @@ module "tgw" {
 
   name = format("%s-tgw", local.name)
 
-  share_tgw                              = false
-  enable_dns_support                     = true
-  enable_default_route_table_propagation = true
-  enable_default_route_table_association = true
+  share_tgw = false
 
   vpc_attachments = {
     vpc_observer = {
-      vpc_id     = module.vpc_observer.vpc_id
-      subnet_ids = module.vpc_observer.private_subnets
+      vpc_id      = module.vpc_observer.vpc_id
+      subnet_ids  = module.vpc_observer.private_subnets
     }
 
     vpc_workload = {
@@ -209,6 +349,18 @@ module "tgw" {
       subnet_ids = module.vpc_workload.private_subnets
     }
   }
+}
+
+resource "aws_route" "vpc_observer_to_vpc_workload" {
+  route_table_id         = module.vpc_observer.private_route_table_ids[0]
+  destination_cidr_block = local.vpc_workload_cidr
+  transit_gateway_id     = module.tgw.ec2_transit_gateway_id
+}
+
+resource "aws_route" "vpc_workload_to_vpc_observer" {
+  route_table_id         = module.vpc_workload.private_route_table_ids[0]
+  destination_cidr_block = local.vpc_observer_cidr
+  transit_gateway_id     = module.tgw.ec2_transit_gateway_id
 }
 
 ## EKS Observer
@@ -230,10 +382,10 @@ module "eks_observer" {
 
   ## Managed Nodegroups
   eks_managed_node_groups = {
-    workshop = {
-      min_size     = 4
-      max_size     = 4
-      desired_size = 4
+    worker = {
+      min_size     = 3
+      max_size     = 3
+      desired_size = 3
 
       instance_types = ["m5.xlarge"]
       iam_role_additional_policies = {
@@ -362,7 +514,7 @@ resource "helm_release" "observer_loki" {
   name       = "loki"
   chart      = "loki"
   repository = "https://grafana.github.io/helm-charts"
-  version    = "v5.38.0"
+  version    = "v6.6.3"
  
   values = [
     file("${path.module}/helm-values/loki.yaml")
@@ -387,19 +539,71 @@ resource "helm_release" "observer_tempo" {
 }
 
 ## EKS Observer / Grafana 
-resource "helm_release" "observer_grafana" {
-  provider = helm.observer  
+module "sg_grafana" {
+  source = "terraform-aws-modules/security-group/aws"
 
-  namespace        = "monitoring"
+  name   = format("%s-grafana-sg", local.name)
+  vpc_id = module.vpc_observer.vpc_id
+
+  ingress_with_cidr_blocks = [
+    {
+      from_port   = 80
+      to_port     = 80
+      protocol    = "tcp"
+      cidr_blocks = "127.0.0.1/32"
+    }
+  ]
+
+  egress_with_cidr_blocks = [
+    {
+      from_port       = 0
+      to_port         = 0
+      protocol        = "-1"
+      cidr_blocks     = "0.0.0.0/0"
+    }
+  ]
+}
+
+module "irsa_observer_grafana" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name                                       = format("%s-irsa-observer-grafana", local.name)
+  attach_amazon_managed_service_prometheus_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["observability:grafana"]
+    }
+  }
+}
+
+resource "helm_release" "observer_grafana" {
+  provider = helm.observer
+
+  namespace        = "observability"
   create_namespace = true
 
   name       = "grafana"
   chart      = "grafana"
   repository = "https://grafana.github.io/helm-charts"
   version    = "v7.0.8"
- 
+
+  set {
+    name  = "serviceAccount.name"
+    value = "grafana"
+  }
+  set {
+    name  = "serviceAccount.annotations.eks\\.amazonaws\\.com/role-arn"
+    value = module.irsa_observer_grafana.iam_role_arn
+  }
+
   values = [
-    file("${path.module}/helm-values/grafana.yaml")
+    templatefile("${path.module}/helm-values/grafana.yaml", {
+      region     = local.region
+      svc_sg     = module.sg_grafana.security_group_id
+      amp_eks_ob = format("https://aps-workspaces.%s.amazonaws.com/workspaces/%s", local.region, module.prometheus.workspace_id)
+    })
   ]
 }
 
@@ -438,10 +642,10 @@ module "eks_workload" {
 
   ## Managed Nodegroups
   eks_managed_node_groups = {
-    workshop = {
-      min_size     = 4
-      max_size     = 4
-      desired_size = 4
+    worker = {
+      min_size     = 3
+      max_size     = 3
+      desired_size = 3
 
       instance_types = ["m5.xlarge"]
       iam_role_additional_policies = {
@@ -542,196 +746,6 @@ resource "helm_release" "workload_aws_load_balancer_controller" {
   ]
 }
 
-## OpenSearch
-resource "aws_opensearch_domain" "opensearch" {
-  domain_name    = format("%s-opensearch", local.name)
-  engine_version = "OpenSearch_2.11"
-
-  cluster_config {
-    instance_type = "m5.xlarge.search"
-  }
-
-  advanced_security_options {
-	  enabled                        = true
-    internal_user_database_enabled = true
-    master_user_options {
-      master_user_name     = "admin"
-      master_user_password = "Admin123!"
-    }
-  }
-
-  encrypt_at_rest {
-    enabled = true
-  }
-
-  domain_endpoint_options {
-    enforce_https       = true
-    tls_security_policy = "Policy-Min-TLS-1-2-2019-07"
-  }
-
-  node_to_node_encryption {
-    enabled = true
-  }
-
-  ebs_options {
-    ebs_enabled = true
-    volume_size = 20
-  }
-}
-
-data "aws_iam_policy_document" "opensearch_policy" {
-  statement {
-    effect = "Allow"
-
-    principals {
-      type        = "AWS"
-      identifiers = ["*"]
-    }
-
-    actions   = ["es:*"]
-    resources = ["${aws_opensearch_domain.opensearch.arn}/*"]
-
-    condition {
-		  test     = "IpAddress"
-      variable = "aws:SourceIp"
-      values   = ["127.0.0.1/32"]
-    }
-  }
-}
-
-resource "aws_opensearch_domain_policy" "opensearch_access_policy" {
-  domain_name     = aws_opensearch_domain.opensearch.domain_name
-  access_policies = data.aws_iam_policy_document.opensearch_policy.json
-}
-
-## OpenSearch / Injest
-resource "aws_iam_role" "opensearch_injest" {
-  name = format("%s-opensearch-injest", local.name)
-
-  assume_role_policy = jsonencode({
-    Version = "2012-10-17"
-    Statement = [
-      {
-        Effect = "Allow"
-        Action = "sts:AssumeRole"
-        Principal = {
-          Service = "osis-pipelines.amazonaws.com"
-        }	
-      },
-    ]
-  })
-
-  inline_policy {
-    name = "OpenSearchInjest"
-
-    policy = jsonencode({
-      Version = "2012-10-17"
-      Statement = [
-        {
-          Effect   = "Allow"
-          Action   = ["es:DescribeDomain", "es:ESHttp*"]
-          Resource = "*"
-        },
-      ]
-    })
-  }
-}
-
-resource "awscc_osis_pipeline" "metrics_onebyone" {
-  pipeline_name = format("%s-mt-onebyone", local.name)
-  min_units     = 1
-  max_units     = 4
-
-  pipeline_configuration_body = templatefile("${path.module}/osis-configs/metrics-onebyone.yaml", 
-    { 
-      region = local.region, 
-      opensearch_endpoint = aws_opensearch_domain.opensearch.endpoint,
-      sts_role_arn = aws_iam_role.opensearch_injest.arn
-    }
-  )
-
-  depends_on = [
-	  aws_opensearch_domain.opensearch,
-    aws_iam_role.opensearch_injest
-  ]
-}
-
-resource "awscc_osis_pipeline" "metrics_atonce" {
-  pipeline_name = format("%s-mt-atonce", local.name)
-  min_units     = 1
-  max_units     = 4
-
-  pipeline_configuration_body = templatefile("${path.module}/osis-configs/metrics-atonce.yaml", 
-    { 
-      region = local.region, 
-      opensearch_endpoint = aws_opensearch_domain.opensearch.endpoint,
-      sts_role_arn = aws_iam_role.opensearch_injest.arn
-    }
-  )
-
-  depends_on = [
-	  aws_opensearch_domain.opensearch,
-    aws_iam_role.opensearch_injest
-  ]
-}
-
-resource "awscc_osis_pipeline" "logs_onebyone" {
-  pipeline_name = format("%s-logs-onebyone", local.name)
-  min_units     = 1
-  max_units     = 4
-
-  pipeline_configuration_body = templatefile("${path.module}/osis-configs/logs-onebyone.yaml", 
-    { 
-      region = local.region, 
-      opensearch_endpoint = aws_opensearch_domain.opensearch.endpoint,
-      sts_role_arn = aws_iam_role.opensearch_injest.arn
-    }
-  )
-
-  depends_on = [
-	  aws_opensearch_domain.opensearch,
-    aws_iam_role.opensearch_injest
-  ]
-}
-
-resource "awscc_osis_pipeline" "logs_atonce" {
-  pipeline_name = format("%s-logs-atonce", local.name)
-  min_units     = 1
-  max_units     = 4
-
-  pipeline_configuration_body = templatefile("${path.module}/osis-configs/logs-atonce.yaml", 
-    { 
-      region = local.region, 
-      opensearch_endpoint = aws_opensearch_domain.opensearch.endpoint,
-      sts_role_arn = aws_iam_role.opensearch_injest.arn
-    }
-  )
-
-  depends_on = [
-	  aws_opensearch_domain.opensearch,
-    aws_iam_role.opensearch_injest
-  ]
-}
-
-resource "awscc_osis_pipeline" "trace" {
-  pipeline_name = format("%s-trace", local.name)
-  min_units     = 1
-  max_units     = 4
-
-  pipeline_configuration_body = templatefile("${path.module}/osis-configs/trace.yaml", 
-    { 
-      region = local.region, 
-      opensearch_endpoint = aws_opensearch_domain.opensearch.endpoint,
-      sts_role_arn = aws_iam_role.opensearch_injest.arn
-    }
-  )
-
-  depends_on = [
-	  aws_opensearch_domain.opensearch,
-    aws_iam_role.opensearch_injest
-  ]
-}
-
 ## EKS Workload / App Python
 data "kubectl_file_documents" "workload_app_python" {
   content = file("${path.module}/manifests/app-python.yaml")
@@ -745,144 +759,5 @@ resource "kubectl_manifest" "workload_app_python" {
 
   depends_on = [
     module.eks_workload
-  ]
-}
-
-## ADOT Collector / Observer / OneByOne / CloudWatch Container Insight
-module "irsa_observer_adot_collector_onebyone_ci" {
-  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-
-  role_name                              = format("%s-irsa-observer-adot-collector-onebyone-ci", local.name)
-  attach_cloudwatch_observability_policy = true
-
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks_observer.oidc_provider_arn
-      namespace_service_accounts = ["monitoring:adot-collector-onebyone-ci"]
-    }
-  }
-
-  depends_on = [
-    module.eks_observer
-  ]
-}
-
-data "kubectl_file_documents" "observer_adot_onebyone_ci" {
-  content = templatefile("${path.module}/manifests/adot-observer-onebyone-ci.yaml",
-    {
-      ci_role_arn = module.irsa_observer_adot_collector_onebyone_ci.iam_role_arn
-    }
-  )
-}
-
-resource "kubectl_manifest" "observer_adot_onebyone_ci" {
-  provider = kubectl.observer
-
-  for_each = data.kubectl_file_documents.observer_adot_onebyone_ci.manifests
-  yaml_body = each.value
-
-  depends_on = [
-    module.eks_observer
-  ]
-}
-
-## ADOT Collector / Observer / OneByOne / CloudWatch Logs
-module "irsa_observer_adot_collector_onebyone_cl" {
-  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-
-  role_name                              = format("%s-irsa-observer-adot-collector-onebyone-cl", local.name)
-  attach_cloudwatch_observability_policy = true
-
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks_observer.oidc_provider_arn
-      namespace_service_accounts = ["monitoring:adot-collector-onebyone-cl"]
-    }
-  }
-
-  depends_on = [
-    module.eks_observer
-  ]
-}
-
-data "kubectl_file_documents" "observer_adot_onebyone_cl" {
-  content = templatefile("${path.module}/manifests/adot-observer-onebyone-cl.yaml",
-    {
-      region         = local.region
-      cluster_name   = module.eks_observer.cluster_name
-      cl_role_arn    = module.irsa_observer_adot_collector_onebyone_cl.iam_role_arn
-      log_group_name = aws_cloudwatch_log_group.onebyone.name
-    }
-  )
-}
-
-resource "kubectl_manifest" "observer_adot_onebyone_cl" {
-  provider = kubectl.observer
-
-  for_each = data.kubectl_file_documents.observer_adot_onebyone_cl.manifests
-  yaml_body = each.value
-
-  depends_on = [
-    module.eks_observer
-  ]
-}
-
-## ADOT Collector / Observer / OneByOne / AMP
-module "irsa_observer_adot_collector_onebyone_amp" {
-  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
-
-  role_name                                       = format("%s-irsa-observer-adot-collector-onebyone-amp", local.name)
-  attach_amazon_managed_service_prometheus_policy = true
-
-  oidc_providers = {
-    main = {
-      provider_arn               = module.eks_observer.oidc_provider_arn
-      namespace_service_accounts = ["monitoring:adot-collector-onebyone-amp"]
-    }
-  }
-
-  depends_on = [
-    module.eks_observer
-  ]
-}
-
-data "kubectl_file_documents" "observer_adot_onebyone_amp" {
-  content = templatefile("${path.module}/manifests/adot-observer-onebyone-amp.yaml",
-    {
-      region                    = local.region
-      amp_role_arn              = module.irsa_observer_adot_collector_onebyone_amp.iam_role_arn
-      amp_remote_write_endpoint = format("https://aps-workspaces.%s.amazonaws.com/workspaces/%s/api/v1/remote_write", local.region, module.prometheus.workspace_id)
-    }
-  )
-}
-
-resource "kubectl_manifest" "observer_adot_onebyone_amp" {
-  provider = kubectl.observer
-
-  for_each = data.kubectl_file_documents.observer_adot_onebyone_amp.manifests
-  yaml_body = each.value
-
-  depends_on = [
-    module.eks_observer
-  ]
-}
-
-## ADOT Collector / Observer / OneByOne / Tempo
-data "kubectl_file_documents" "observer_adot_onebyone_tempo" {
-  content = templatefile("${path.module}/manifests/adot-observer-onebyone-tempo.yaml",
-    {
-      region = local.region
-    }
-  )
-}
-
-resource "kubectl_manifest" "observer_adot_onebyone_tempo" {
-  provider = kubectl.observer
-
-  for_each = data.kubectl_file_documents.observer_adot_onebyone_tempo.manifests
-  yaml_body = each.value
-
-  depends_on = [
-    module.eks_observer
   ]
 }
