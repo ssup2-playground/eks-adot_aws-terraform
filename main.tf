@@ -117,6 +117,27 @@ data "aws_ecrpublic_authorization_token" "token" {
   provider = aws.ecr
 }
 
+## IAM
+module "iam_policy_os_ingest" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-policy"
+
+  name = format("%s_opensearch_ingest", local.name)
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Effect = "Allow"
+        Action = [
+          "osis:Ingest",
+        ]
+        Resource = "*"
+      }
+    ]
+  })
+}
+
+
 ## AMP
 module "prometheus" {
   source = "terraform-aws-modules/managed-service-prometheus/aws"
@@ -695,6 +716,46 @@ resource "kubectl_manifest" "observer_adot_metric_amp" {
           aws_region = local.region
           amp_remote_write_endpoint = format("https://aps-workspaces.%s.amazonaws.com/workspaces/%s/api/v1/remote_write", local.region, module.prometheus.workspace_id)
           amp_role_arn = module.irsa_observer_adot_metric_amp.iam_role_arn
+        }
+      )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## EKS Observer / Metric / OpenSearch
+module "irsa_observer_adot_metric_os" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name        = format("%s_irsa_observer_adot_metric_os", local.name)
+  role_policy_arns = {
+    policy = module.iam_policy_os_ingest.arn
+  }
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["adot-collector:adot-metric-os"]
+    }
+  }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+resource "kubectl_manifest" "observer_adot_metric_os" {
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-metric-os.yaml",
+        {
+          aws_region = local.region
+          os_metric_endpoint = format("https://aps-workspaces.%s.amazonaws.com/workspaces/%s/api/v1/remote_write", local.region, module.prometheus.workspace_id)
+          os_role_arn = module.irsa_observer_adot_metric_os.iam_role_arn
         }
       )
     )
