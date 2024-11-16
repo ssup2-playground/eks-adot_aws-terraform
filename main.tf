@@ -424,6 +424,15 @@ module "eks_observer" {
       type        = "ingress"
       self        = true
     }
+
+  ingress_grafana = {
+      description              = "From grafana NLB"
+      protocol                 = "-1"
+      from_port                = 0
+      to_port                  = 0
+      type                     = "ingress"
+      source_security_group_id = module.sg_grafana.security_group_id
+    }
   }
 }
 
@@ -648,6 +657,44 @@ resource "kubectl_manifest" "observer_adot_metric_cw" {
       templatefile("${path.module}/manifests/adot-metric-cw.yaml",
         {
           cw_role_arn = module.irsa_observer_adot_metric_cw.iam_role_arn
+        }
+      )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## EKS Observer / Metric / AMP
+module "irsa_observer_adot_metric_amp" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name                                       = format("%s_irsa_observer_adot_metric_amp", local.name)
+  attach_amazon_managed_service_prometheus_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["adot-collector:adot-metric-amp"]
+    }
+  }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+resource "kubectl_manifest" "observer_adot_metric_amp" {
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-metric-amp.yaml",
+        {
+          aws_region = local.region
+          amp_remote_write_endpoint = format("https://aps-workspaces.%s.amazonaws.com/workspaces/%s/api/v1/remote_write", local.region, module.prometheus.workspace_id)
+          amp_role_arn = module.irsa_observer_adot_metric_amp.iam_role_arn
         }
       )
     )
