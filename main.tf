@@ -508,7 +508,7 @@ resource "helm_release" "observer_aws_load_balancer_controller" {
 resource "helm_release" "observer_loki" {
   provider = helm.observer  
 
-  namespace        = "monitoring"
+  namespace        = "observability"
   create_namespace = true
 
   name       = "loki"
@@ -525,7 +525,7 @@ resource "helm_release" "observer_loki" {
 resource "helm_release" "observer_tempo" {
   provider = helm.observer  
 
-  namespace        = "monitoring"
+  namespace        = "observability"
   create_namespace = true
 
   name       = "tempo"
@@ -616,6 +616,42 @@ resource "kubectl_manifest" "observer_app_python" {
   provider = kubectl.observer
 
   for_each = data.kubectl_file_documents.observer_app_python.manifests
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## EKS Observer / Metric / CloudWatch
+module "irsa_observer_adot_metric_cw" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name                              = format("%s_irsa_observer_adot_metric_cw", local.name)
+  attach_cloudwatch_observability_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["adot-collector:adot-metric-cw"]
+    }
+  }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+resource "kubectl_manifest" "observer_adot_metric_cw" {
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-metric-cw.yaml",
+        {
+          cw_role_arn = module.irsa_observer_adot_metric_cw.iam_role_arn
+        }
+      )
+    )
+  )
   yaml_body = each.value
 
   depends_on = [
