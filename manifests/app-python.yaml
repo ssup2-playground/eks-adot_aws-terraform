@@ -10,6 +10,8 @@ kind: Deployment
 metadata:
   namespace: app
   name: app-python
+  annotations:
+    instrumentation.opentelemetry.io/inject-python: true
 spec:
   selector:
     matchLabels:

@@ -278,7 +278,7 @@ resource "awscc_osis_pipeline" "logs" {
   ]
 }
 
-resource "awscc_osis_pipeline" "trace" {
+resource "awscc_osis_pipeline" "traces" {
   pipeline_name = format("%s-trace", local.name)
   min_units     = 3
   max_units     = 3
@@ -754,7 +754,7 @@ resource "kubectl_manifest" "observer_adot_metric_os" {
       templatefile("${path.module}/manifests/adot-metric-os.yaml",
         {
           aws_region = local.region
-          os_metric_endpoint = format("https://%s", awscc_osis_pipeline.metrics.ingest_endpoint_urls[0])
+          os_metric_endpoint = awscc_osis_pipeline.metrics.ingest_endpoint_urls[0]
           os_role_arn = module.irsa_observer_adot_metric_os.iam_role_arn
         }
       )
@@ -830,7 +830,7 @@ resource "kubectl_manifest" "observer_adot_log_os" {
       templatefile("${path.module}/manifests/adot-log-os.yaml",
         {
           aws_region = local.region
-          os_log_endpoint = format("https://%s", awscc_osis_pipeline.logs.ingest_endpoint_urls[0])
+          os_log_endpoint = awscc_osis_pipeline.logs.ingest_endpoint_urls[0]
           os_role_arn = module.irsa_observer_adot_log_os.iam_role_arn
         }
       )
@@ -848,6 +848,60 @@ resource "kubectl_manifest" "observer_adot_log_loki" {
   for_each = toset(
     split("---",
       file("${path.module}/manifests/adot-log-loki.yaml")
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## EKS Observer / Trace / OpenSearch
+module "irsa_observer_adot_trace_os" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name        = format("%s_irsa_observer_adot_trace_os", local.name)
+  role_policy_arns = {
+    policy = module.iam_policy_os_ingest.arn
+  }
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["adot-collector:adot-trace-os"]
+    }
+  }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+resource "kubectl_manifest" "observer_adot_trace_os" {
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-trace-os.yaml",
+        {
+          aws_region = local.region
+          os_trace_endpoint = awscc_osis_pipeline.traces.ingest_endpoint_urls[0]
+          os_role_arn = module.irsa_observer_adot_trace_os.iam_role_arn
+        }
+      )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## EKS Observer / Log / Loki Destination
+resource "kubectl_manifest" "observer_adot_logd_loki" {
+  for_each = toset(
+    split("---",
+      file("${path.module}/manifests/adot-logd-loki.yaml")
     )
   )
   yaml_body = each.value
