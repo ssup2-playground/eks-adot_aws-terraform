@@ -689,20 +689,6 @@ resource "kubectl_manifest" "observer_adot_metric_cw" {
   ]
 }
 
-## EKS Observer / Log / Loki
-resource "kubectl_manifest" "observer_adot_log_loki" {
-  for_each = toset(
-    split("---",
-      file("${path.module}/manifests/adot-log-loki.yaml")
-    )
-  )
-  yaml_body = each.value
-
-  depends_on = [
-    module.eks_observer
-  ]
-}
-
 ## EKS Observer / Metric / AMP
 module "irsa_observer_adot_metric_amp" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
@@ -768,7 +754,7 @@ resource "kubectl_manifest" "observer_adot_metric_os" {
       templatefile("${path.module}/manifests/adot-metric-os.yaml",
         {
           aws_region = local.region
-          os_metric_endpoint = format("https://aps-workspaces.%s.amazonaws.com/workspaces/%s/api/v1/remote_write", local.region, module.prometheus.workspace_id)
+          os_metric_endpoint = format("https://%s", awscc_osis_pipeline.metrics.ingest_endpoint_urls[0])
           os_role_arn = module.irsa_observer_adot_metric_os.iam_role_arn
         }
       )
