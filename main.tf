@@ -803,6 +803,46 @@ resource "kubectl_manifest" "observer_adot_log_cw" {
   ]
 }
 
+## EKS Observer / Log / OpenSearch
+module "irsa_observer_adot_log_os" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name        = format("%s_irsa_observer_adot_log_os", local.name)
+  role_policy_arns = {
+    policy = module.iam_policy_os_ingest.arn
+  }
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["adot-collector:adot-log-os"]
+    }
+  }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+resource "kubectl_manifest" "observer_adot_log_os" {
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-log-os.yaml",
+        {
+          aws_region = local.region
+          os_log_endpoint = format("https://%s", awscc_osis_pipeline.logs.ingest_endpoint_urls[0])
+          os_role_arn = module.irsa_observer_adot_log_os.iam_role_arn
+        }
+      )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
 ## EKS Observer / Log / Loki
 resource "kubectl_manifest" "observer_adot_log_loki" {
   for_each = toset(
