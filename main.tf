@@ -689,6 +689,20 @@ resource "kubectl_manifest" "observer_adot_metric_cw" {
   ]
 }
 
+## EKS Observer / Log / Loki
+resource "kubectl_manifest" "observer_adot_log_loki" {
+  for_each = toset(
+    split("---",
+      file("${path.module}/manifests/adot-log-loki.yaml")
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
 ## EKS Observer / Metric / AMP
 module "irsa_observer_adot_metric_amp" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
@@ -794,6 +808,20 @@ resource "kubectl_manifest" "observer_adot_log_cw" {
           cw_role_arn = module.irsa_observer_adot_log_cw.iam_role_arn
         }
       )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## EKS Observer / Log / Loki
+resource "kubectl_manifest" "observer_adot_log_loki" {
+  for_each = toset(
+    split("---",
+      file("${path.module}/manifests/adot-log-loki.yaml")
     )
   )
   yaml_body = each.value
