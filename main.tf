@@ -767,6 +767,42 @@ resource "kubectl_manifest" "observer_adot_metric_os" {
   ]
 }
 
+## EKS Observer / Log / CloudWatch
+module "irsa_observer_adot_log_cw" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name                              = format("%s_irsa_observer_adot_log_cw", local.name)
+  attach_cloudwatch_observability_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["adot-collector:adot-log-cw"]
+    }
+  }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+resource "kubectl_manifest" "observer_adot_log_cw" {
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-log-cw.yaml",
+        {
+          cw_role_arn = module.irsa_observer_adot_log_cw.iam_role_arn
+        }
+      )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
 ## EKS Workload
 module "eks_workload" {
   providers = {
