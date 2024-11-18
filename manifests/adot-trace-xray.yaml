@@ -60,7 +60,7 @@ spec:
 apiVersion: opentelemetry.io/v1alpha1
 kind: Instrumentation
 metadata:
-  name: adot-trace-xray-instrumentation
+  name: adot-trace-xray
   namespace: app
 spec:
   exporter:
