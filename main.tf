@@ -639,7 +639,7 @@ resource "helm_release" "observer_grafana" {
 
 ## EKS Observer / App Python
 data "kubectl_file_documents" "observer_app_python" {
-  content = file("${path.module}/manifests/app-python.yaml")
+  content = file("${path.module}/manifests/app-python-ob.yaml")
 }
 
 resource "kubectl_manifest" "observer_app_python" {
@@ -857,6 +857,20 @@ resource "kubectl_manifest" "observer_adot_log_loki" {
   ]
 }
 
+## EKS Observer / Log / Loki Destination
+resource "kubectl_manifest" "observer_adot_logd_loki" {
+  for_each = toset(
+    split("---",
+      file("${path.module}/manifests/adot-logd-loki.yaml")
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
 ## EKS Observer / Trace / OpenSearch
 module "irsa_observer_adot_trace_os" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
@@ -897,11 +911,11 @@ resource "kubectl_manifest" "observer_adot_trace_os" {
   ]
 }
 
-## EKS Observer / Log / Loki Destination
-resource "kubectl_manifest" "observer_adot_logd_loki" {
+## EKS Observer / Trace / Tempo
+resource "kubectl_manifest" "observer_adot_trace_tempo" {
   for_each = toset(
     split("---",
-      file("${path.module}/manifests/adot-logd-loki.yaml")
+      file("${path.module}/manifests/adot-trace-tempo.yaml")
     )
   )
   yaml_body = each.value
@@ -1036,7 +1050,7 @@ resource "helm_release" "workload_aws_load_balancer_controller" {
 
 ## EKS Workload / App Python
 data "kubectl_file_documents" "workload_app_python" {
-  content = file("${path.module}/manifests/app-python.yaml")
+  content = file("${path.module}/manifests/app-python-work.yaml")
 }
 
 resource "kubectl_manifest" "workload_app_python" {

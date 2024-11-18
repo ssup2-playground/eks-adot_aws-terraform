@@ -1,17 +1,13 @@
----
 apiVersion: v1
 kind: Namespace
 metadata:
   name: app
-
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   namespace: app
   name: app-python
-  annotations:
-    instrumentation.opentelemetry.io/inject-python: true
 spec:
   selector:
     matchLabels:
@@ -21,6 +17,8 @@ spec:
     metadata:
       labels:
         app: app-python
+      annotations:
+        instrumentation.opentelemetry.io/inject-python: true
     spec:
       containers:
       - name: app-python
@@ -42,7 +40,6 @@ spec:
     rollingUpdate:
       maxSurge: 0%
       maxUnavailable: 100%
-
 ---
 apiVersion: v1
 kind: Service
