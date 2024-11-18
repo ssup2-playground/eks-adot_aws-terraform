@@ -7,19 +7,19 @@ apiVersion: v1
 kind: ServiceAccount
 metadata:
   namespace: adot-collector
-  name: adot-trace-os
+  name: adot-trace-xray
   annotations:
-    eks.amazonaws.com/role-arn: ${os_role_arn}
+    eks.amazonaws.com/role-arn: ${xray_role_arn}
 ---
 apiVersion: opentelemetry.io/v1alpha1
 kind: OpenTelemetryCollector
 metadata:
   namespace: adot-collector
-  name: adot-trace-os
+  name: adot-trace-xray
 spec:
   mode: deployment
   replicas: 1
-  serviceAccount: adot-trace-os
+  serviceAccount: adot-trace-xray
   resources:
     limits:
       cpu: 200m
@@ -31,9 +31,6 @@ spec:
   config: |
     extensions:
       health_check:
-      sigv4auth:
-        region: ${aws_region}
-        service: "osis"
 
     receivers:
       otlp:
@@ -42,35 +39,32 @@ spec:
             endpoint: 0.0.0.0:4317
           http:
             endpoint: 0.0.0.0:4318
-    
+        
     exporters:
-      otlphttp:
-        traces_endpoint: "https://${os_trace_endpoint}/v1/traces"
-        auth:
-          authenticator: sigv4auth
-        compression: none
-    
+      awsxray:
+        region: ${aws_region}
+        
     processors:
       batch/traces:
         timeout: 1s
         send_batch_size: 50
-    
+        
     service:
-      extensions: [health_check, sigv4auth]
+      extensions: [health_check]
       pipelines:
         traces:
           receivers: [otlp]
           processors: [batch/traces]
-          exporters: [otlphttp]
+          exporters: [awsxray]
 ---
 apiVersion: opentelemetry.io/v1alpha1
 kind: Instrumentation
 metadata:
-  name: adot-trace-os
+  name: adot-trace-xray-instrumentation
   namespace: app
 spec:
   exporter:
-    endpoint: http://adot-trace-os-collector.adot-collector.svc.cluster.local:4318
+    endpoint: http://adot-trace-xray-collector.adot-collector.svc.cluster.local:4318
   propagators:
   - tracecontext
   - baggage
@@ -81,5 +75,5 @@ spec:
     # temp
     image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:0.43b0
     env:
-    - name: OTEL_METRICS_EXPORTER
-      value: none
+      - name: OTEL_METRICS_EXPORTER
+        value: none

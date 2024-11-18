@@ -871,6 +871,43 @@ resource "kubectl_manifest" "observer_adot_logd_loki" {
   ]
 }
 
+## EKS Observer / Trace / X-Ray
+module "irsa_observer_adot_trace_xray" {
+  source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
+
+  role_name        = format("%s_irsa_observer_adot_trace_xray", local.name)
+  attach_cloudwatch_observability_policy = true
+
+  oidc_providers = {
+    main = {
+      provider_arn               = module.eks_observer.oidc_provider_arn
+      namespace_service_accounts = ["adot-collector:adot-trace-xray"]
+    }
+  }
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+resource "kubectl_manifest" "observer_adot_trace_xray" {
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-trace-xray.yaml",
+        {
+          aws_region = local.region
+          xray_role_arn = module.irsa_observer_adot_trace_xray.iam_role_arn
+        }
+      )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
 ## EKS Observer / Trace / OpenSearch
 module "irsa_observer_adot_trace_os" {
   source = "terraform-aws-modules/iam/aws//modules/iam-role-for-service-accounts-eks"
