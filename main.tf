@@ -857,7 +857,7 @@ resource "kubectl_manifest" "observer_adot_log_loki" {
   ]
 }
 
-## EKS Observer / Log / Loki Destination
+## EKS Observer / Log Destination / Loki
 resource "kubectl_manifest" "observer_adot_logd_loki" {
   for_each = toset(
     split("---",
@@ -953,6 +953,20 @@ resource "kubectl_manifest" "observer_adot_trace_tempo" {
   for_each = toset(
     split("---",
       file("${path.module}/manifests/adot-trace-tempo.yaml")
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## EKS Observer / Trace Destination / Tempo
+resource "kubectl_manifest" "observer_adot_traced_tempo" {
+  for_each = toset(
+    split("---",
+      file("${path.module}/manifests/adot-traced-tempo.yaml")
     )
   )
   yaml_body = each.value
