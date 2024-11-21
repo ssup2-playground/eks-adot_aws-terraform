@@ -1,0 +1,91 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: adot-collector
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  namespace: adot-collector
+  name: adot-traces-tempo
+---
+apiVersion: opentelemetry.io/v1alpha1
+kind: OpenTelemetryCollector
+metadata:
+  namespace: adot-collector
+  name: adot-traces-tempo
+spec:
+  mode: deployment
+  serviceAccount: adot-traces-tempo
+  securityContext:
+    runAsUser: 0
+    runAsGroup: 0
+  hostNetwork: false
+  resources:
+    limits:
+      cpu: 200m
+      memory: 400Mi
+    requests:
+      cpu: 200m
+      memory: 400Mi
+
+  env:
+  - name: CLUSTER_NAME
+    value: eks-adot-work-eks
+
+  config: |
+    extensions:
+      health_check:
+
+    receivers:
+      otlp:
+        protocols:
+          grpc:
+            endpoint: 0.0.0.0:4317
+          http:
+            endpoint: 0.0.0.0:4318
+        
+    exporters:
+      otlphttp:
+        endpoint: "http://${tempo_traced_endpoint}:4318"
+        tls:
+          insecure: true
+        
+    processors:
+      batch/traces:
+        timeout: 1s
+        send_batch_size: 50
+      resource:
+        attributes:
+        - key: k8s.cluster.name
+          value: $CLUSTER_NAME
+          action: insert
+        
+    service:
+      extensions: [health_check]
+      pipelines:
+        traces:
+          receivers: [otlp]
+          processors: [batch/traces, resource]
+          exporters: [otlphttp]
+---
+apiVersion: opentelemetry.io/v1alpha1
+kind: Instrumentation
+metadata:
+  name: adot-traces-tempo
+  namespace: app
+spec:
+  exporter:
+    endpoint: http://adot-traces-tempo-collector.adot-collector:4318
+  propagators:
+  - tracecontext
+  - baggage
+  sampler:
+    type: parentbased_traceidratio
+    argument: "1"
+  python:
+    # temp
+    image: ghcr.io/open-telemetry/opentelemetry-operator/autoinstrumentation-python:0.43b0
+    env:
+    - name: OTEL_METRICS_EXPORTER
+      value: none

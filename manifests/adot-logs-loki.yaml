@@ -182,7 +182,7 @@ spec:
 
     exporters:
       otlphttp:
-        logs_endpoint: "http://${loki_log_endpoint}:4318/v1/logs"
+        logs_endpoint: "http://${loki_logd_endpoint}:4318/v1/logs"
         compression: none
 
     service:

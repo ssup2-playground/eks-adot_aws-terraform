@@ -18,7 +18,7 @@ spec:
       labels:
         app: app-python
       annotations:
-        instrumentation.opentelemetry.io/inject-python: true
+        instrumentation.opentelemetry.io/inject-python: "true"
     spec:
       containers:
       - name: app-python

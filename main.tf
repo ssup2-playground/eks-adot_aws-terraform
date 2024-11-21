@@ -118,7 +118,12 @@ data "aws_ecrpublic_authorization_token" "token" {
 }
 
 ## Variables
-variable "loki-log-endpoint" {
+variable "loki-logd-endpoint" {
+  type = string
+  default = ""
+}
+
+variable "tempo-traced-endpoint" {
   type = string
   default = ""
 }
@@ -1152,7 +1157,27 @@ resource "kubectl_manifest" "workload_adot_logs_loki" {
     split("---",
       templatefile("${path.module}/manifests/adot-logs-loki.yaml", 
         {
-          loki_log_endpoint = var.loki-log-endpoint
+          loki_logd_endpoint = var.loki-logd-endpoint
+        }
+      )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
+  ]
+}
+
+## EKS Observer / Trace Source / Tempo
+resource "kubectl_manifest" "workload_adot_traces_tempo" {
+  provider = kubectl.workload
+
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-traces-tempo.yaml", 
+        {
+          tempo_traced_endpoint = var.tempo-traced-endpoint
         }
       )
     )
