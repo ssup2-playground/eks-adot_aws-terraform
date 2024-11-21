@@ -117,6 +117,12 @@ data "aws_ecrpublic_authorization_token" "token" {
   provider = aws.ecr
 }
 
+## Variables
+variable "loki-log-endpoint" {
+  type = string
+  default = ""
+}
+
 ## IAM
 module "iam_policy_os_ingest" {
   source = "terraform-aws-modules/iam/aws//modules/iam-policy"
@@ -136,7 +142,6 @@ module "iam_policy_os_ingest" {
     ]
   })
 }
-
 
 ## AMP
 module "prometheus" {
@@ -309,6 +314,7 @@ module "vpc_observer" {
   private_subnets  = [for k, v in local.azs : cidrsubnet(local.vpc_observer_cidr, 4, k + 4)]
 
   enable_nat_gateway   = true
+  single_nat_gateway   = true
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -336,6 +342,7 @@ module "vpc_workload" {
   private_subnets  = [for k, v in local.azs : cidrsubnet(local.vpc_workload_cidr, 4, k + 4)]
 
   enable_nat_gateway   = true
+  single_nat_gateway   = true
   enable_dns_hostnames = true
   enable_dns_support   = true
 
@@ -673,6 +680,8 @@ module "irsa_observer_adot_metric_cw" {
 }
 
 resource "kubectl_manifest" "observer_adot_metric_cw" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       templatefile("${path.module}/manifests/adot-metric-cw.yaml",
@@ -709,6 +718,8 @@ module "irsa_observer_adot_metric_amp" {
 }
 
 resource "kubectl_manifest" "observer_adot_metric_amp" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       templatefile("${path.module}/manifests/adot-metric-amp.yaml",
@@ -749,6 +760,8 @@ module "irsa_observer_adot_metric_os" {
 }
 
 resource "kubectl_manifest" "observer_adot_metric_os" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       templatefile("${path.module}/manifests/adot-metric-os.yaml",
@@ -787,6 +800,8 @@ module "irsa_observer_adot_log_cw" {
 }
 
 resource "kubectl_manifest" "observer_adot_log_cw" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       templatefile("${path.module}/manifests/adot-log-cw.yaml",
@@ -825,6 +840,8 @@ module "irsa_observer_adot_log_os" {
 }
 
 resource "kubectl_manifest" "observer_adot_log_os" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       templatefile("${path.module}/manifests/adot-log-os.yaml",
@@ -845,6 +862,8 @@ resource "kubectl_manifest" "observer_adot_log_os" {
 
 ## EKS Observer / Log / Loki
 resource "kubectl_manifest" "observer_adot_log_loki" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       file("${path.module}/manifests/adot-log-loki.yaml")
@@ -859,6 +878,8 @@ resource "kubectl_manifest" "observer_adot_log_loki" {
 
 ## EKS Observer / Log Destination / Loki
 resource "kubectl_manifest" "observer_adot_logd_loki" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       file("${path.module}/manifests/adot-logd-loki.yaml")
@@ -891,6 +912,8 @@ module "irsa_observer_adot_trace_xray" {
 }
 
 resource "kubectl_manifest" "observer_adot_trace_xray" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       templatefile("${path.module}/manifests/adot-trace-xray.yaml",
@@ -930,6 +953,8 @@ module "irsa_observer_adot_trace_os" {
 }
 
 resource "kubectl_manifest" "observer_adot_trace_os" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       templatefile("${path.module}/manifests/adot-trace-os.yaml",
@@ -950,6 +975,8 @@ resource "kubectl_manifest" "observer_adot_trace_os" {
 
 ## EKS Observer / Trace / Tempo
 resource "kubectl_manifest" "observer_adot_trace_tempo" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       file("${path.module}/manifests/adot-trace-tempo.yaml")
@@ -964,6 +991,8 @@ resource "kubectl_manifest" "observer_adot_trace_tempo" {
 
 ## EKS Observer / Trace Destination / Tempo
 resource "kubectl_manifest" "observer_adot_traced_tempo" {
+  provider = kubectl.observer
+
   for_each = toset(
     split("---",
       file("${path.module}/manifests/adot-traced-tempo.yaml")
@@ -1112,5 +1141,25 @@ resource "kubectl_manifest" "workload_app_python" {
 
   depends_on = [
     module.eks_workload
+  ]
+}
+
+## EKS Observer / Log Source / Loki
+resource "kubectl_manifest" "workload_adot_logs_loki" {
+  provider = kubectl.workload
+
+  for_each = toset(
+    split("---",
+      templatefile("${path.module}/manifests/adot-logs-loki.yaml", 
+        {
+          loki_log_endpoint = var.loki-log-endpoint
+        }
+      )
+    )
+  )
+  yaml_body = each.value
+
+  depends_on = [
+    module.eks_observer
   ]
 }
